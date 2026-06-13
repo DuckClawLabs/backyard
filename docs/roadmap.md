@@ -1,7 +1,8 @@
 # Backyard — Roadmap
 
-**Google Docs for AI-assisted coding.** Many humans, each with their own session + background agent, all
-editing one live shared project. Full detail in [`technical-report.md`](./technical-report.md).
+**Multi-human, multi-agent collaborative coding.** Many humans, each with their own session + background
+agent, all contributing to one live shared project in real time. Full detail in
+[`technical-report.md`](./technical-report.md).
 
 ---
 
@@ -35,10 +36,10 @@ A negative result is a **successful** MVP — four weeks, not a company.
 
 ---
 
-## Phase 2 — Platform (3 months): *Is it reliable — and does it feel like Google Docs?*
+## Phase 2 — Platform (3 months): *Is it reliable?*
 
-- **Monaco/Yjs web editor** — the true Google-Docs feel (live cursors, inline edits), a thin client over
-  the same Python backend.
+- **Web editor** — a visual client with live cursors and inline edits, a thin client over the same
+  Python backend.
 - DevOps + Reviewer roles; cross-domain proposal flow; ADR system.
 - AST-level **merge suggestions** for incompatible units (not just surface-and-pick).
 - Session reconnect without losing agent context; RBAC + invite links.

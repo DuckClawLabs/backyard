@@ -1,18 +1,17 @@
 # Backyard
 
-**Google Docs for AI-assisted coding.**
+**Multi-human, multi-agent collaborative coding.**
 
 Every AI coding agent today assumes *one human per session*. But software is built by teams. **Backyard**
 fills the missing quadrant with a specific shape:
 
 > Many humans log in. **Each gets their own private session with their own background AI agent.** All of
-> those sessions edit **one live shared project at the same time — like Google Docs.** Everyone's edits,
-> and every agent's edits, appear live for everyone. No pull requests, no merge step. When two changes
-> truly conflict, the collision is surfaced to the humans involved and they **choose between
-> themselves.**
+> those sessions contribute to **one live shared project at the same time.** Everyone's edits, and every
+> agent's edits, appear live for everyone. No pull requests, no merge step. When two changes truly
+> conflict, the collision is surfaced to the humans involved and they **choose between themselves.**
 
-The mental model is exact: **Google Docs, but the document is a codebase and every editor has an AI
-agent working alongside them.** Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
+One shared project that the whole team contributes to at once, in real time, with an AI agent working
+alongside each person. Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
 
 ## Status
 
@@ -27,7 +26,7 @@ code yet.
 
 ## The shape
 
-- **Project** = the shared, live codebase (the "Doc"). The unit everyone collaborates on.
+- **Project** = the shared, live codebase. The unit everyone collaborates on.
 - **Session** = one human's private space: their chat, context, and **background agent**. Many sessions
   attach to one project. You see others' *edits and cursors*, not their private agent chat.
 
@@ -48,8 +47,8 @@ The 4-week MVP exists to answer exactly that.
 
 ## Core design choices
 
-- **Stack:** Python — FastAPI + asyncio, **`pycrdt`** (the Google-Docs-style CRDT, Yjs-compatible) for
-  live sync, Redis (presence/pub-sub), Postgres (durable state), the `anthropic` and `mcp` SDKs, a
+- **Stack:** Python — FastAPI + asyncio, **`pycrdt`** (a CRDT for real-time convergence, Yjs-compatible)
+  for live sync, Redis (presence/pub-sub), Postgres (durable state), the `anthropic` and `mcp` SDKs, a
   Textual terminal client. The CRDT backend is Yjs-wire-compatible, so a later web editor is a thin
   client over the *same Python server* — the team stays in Python.
 - **Two-layer conflicts.** Text **auto-converges** (CRDT, lossless, no merge step). Only *semantic*

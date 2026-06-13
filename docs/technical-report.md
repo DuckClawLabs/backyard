@@ -1,8 +1,9 @@
-# Backyard — Google Docs for AI-Assisted Coding
+# Backyard — Multi-Human, Multi-Agent Collaborative Coding
 
-**Multiple humans, each with their own background AI agent, editing one live shared project in real time.**
+**Many humans, each with their own background AI agent, all contributing to one live shared project in
+real time.**
 Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
-Version 0.2 · Status: Design · Stack: Python
+Version 0.3 · Status: Design · Stack: Python
 
 ---
 
@@ -12,20 +13,19 @@ The white paper establishes the gap: every AI coding agent assumes **one human p
 software is built by teams. **Backyard** fills the missing quadrant with a specific shape:
 
 > Many humans log in. **Each gets their own private session with their own background agent.** All of
-> those sessions edit **one live shared project at the same time — like Google Docs.** Every human's
-> edits, and every agent's edits, appear live for everyone. When two changes truly conflict, the
-> collision is surfaced to the humans involved and they **choose between themselves.**
+> those sessions contribute to **one live shared project at the same time.** Every human's edits, and
+> every agent's edits, appear live for everyone. When two changes truly conflict, the collision is
+> surfaced to the humans involved and they **choose between themselves.**
 
-The mental model is exact: **Google Docs, but the document is a codebase and every editor has an AI
-agent working alongside them in the background.** Google Docs solved real-time collaboration for prose
-with no pull requests, no merge step, no "who has the file open." Backyard does the same for code — and
-adds a per-person agent to each seat.
+The model is simple: **one shared project that the whole team contributes to at once, in real time, with
+an AI agent working alongside each person.** No pull requests, no merge step, no "who has the file
+open." The shared state is always already merged.
 
-This report specifies the system end-to-end: the project-centric architecture, the live-sync engine
-(CRDT), how separate sessions and background agents share one project, the two-layer conflict model
-(automatic text convergence + human-resolved semantic conflicts), the trust model, roles, shared
-context, the inter-agent protocol, a 4-week MVP, the Python stack, and a phased roadmap — with every one
-of the white paper's **five fatal risks** mapped to a concrete mitigation.
+This report specifies the system end-to-end: the project-centric architecture, the real-time sync engine,
+how separate sessions and background agents share one project, the two-layer conflict model (automatic
+text convergence + human-resolved semantic conflicts), the trust model, roles, shared context, the
+inter-agent protocol, a 4-week MVP, the Python stack, and a phased roadmap — with every one of the white
+paper's **five fatal risks** mapped to a concrete mitigation.
 
 ---
 
@@ -33,16 +33,16 @@ of the white paper's **five fatal risks** mapped to a concrete mitigation.
 
 ### 1.1 Project-centric, not session-centric
 
-The unit everyone shares is the **Project** — the live codebase. It is the Google Doc.
+The unit everyone shares is the **Project** — the live codebase.
 
 Each human has their **own Session**: their private chat, their own context, and their own **background
 agent(s)** working on their behalf. Sessions are *isolated from each other* — you don't read someone
-else's conversation — exactly as in Google Docs you see others' edits and cursors but not their private
+else's conversation. You see other people's *edits and cursors* in the shared project, not their private
 notes.
 
 ```
                           ┌──────────── ONE LIVE PROJECT ────────────┐
-                          │      (the shared codebase = the Doc)      │
+                          │           (the shared codebase)           │
                           └───────────────────────────────────────────┘
                               ▲            ▲            ▲           ▲
           live edits          │            │            │           │   live edits
@@ -58,9 +58,8 @@ notes.
 
 ### 1.2 Three things this gets right that pull requests don't
 
-- **No merge step.** Like Google Docs, the shared state is *always already merged*. There is no "open a
-  PR, wait, resolve conflicts, merge" — your edits and your agent's edits land in the live project as
-  they happen.
+- **No merge step.** The shared state is *always already merged*. There is no "open a PR, wait, resolve
+  conflicts, merge" — your edits and your agent's edits land in the live project as they happen.
 - **Everyone sees everything, live.** Human C watches Human A's agent refactor a module in real time,
   not in a diff three hours later. Context is never reconstructed.
 - **Agents work in the background, per person.** Each human's agent is doing real work autonomously
@@ -69,12 +68,11 @@ notes.
 
 ### 1.3 The one hard problem this creates
 
-Google Docs works because *any* interleaving of prose edits is still valid prose. **Code is not prose:**
-two cleanly-merged edits can produce a file that does not compile or that is logically contradictory.
-So Backyard needs **two layers** (see §5):
+Real-time text collaboration is well understood for *prose*, because any interleaving of prose edits is
+still valid prose. **Code is not prose:** two cleanly-merged edits can produce a file that does not
+compile or that is logically contradictory. So Backyard needs **two layers** (see §5):
 
-1. **Text convergence** — guarantees everyone's view is identical and no keystroke is ever lost
-   (this is the CRDT, the Google Docs guarantee).
+1. **Text convergence** — guarantees everyone's view is identical and no keystroke is ever lost.
 2. **Semantic conflict detection** — notices when the converged code is broken or two sessions changed
    the same logical unit incompatibly, and **surfaces it to the humans involved to choose between
    themselves.**
@@ -83,10 +81,10 @@ So Backyard needs **two layers** (see §5):
 
 ## 2. Design Principles
 
-1. **The project is the shared object; sessions are private.** Locks, presence, and history hang off
-   the **project**; chat, context, and agent state hang off each human's **session**.
-2. **Always-merged, never-blocked.** Real-time convergence (CRDT) means there is no merge step and no
-   file you must wait for. Editing is live, like Google Docs.
+1. **The project is the shared object; sessions are private.** History and presence hang off the
+   **project**; chat, context, and agent state hang off each human's **session**.
+2. **Always-merged, never-blocked.** Real-time convergence means there is no merge step and no file you
+   must wait for. Editing is live.
 3. **Auto-merge the text, surface the meaning.** Text-level collisions converge automatically; only
    *semantic* conflicts interrupt a human — and then only the humans actually involved.
 4. **Conflicts are resolved socially.** When a real conflict surfaces, it goes to a **shared resolution
@@ -126,7 +124,7 @@ So Backyard needs **two layers** (see §5):
 **① Project Registry** — owns projects; attaches/detaches sessions; everything keys off
 `project_id` (shared) and `session_id` (per human).
 
-**② Live Sync Engine (CRDT)** — *the Google Docs core.* Holds the shared codebase as a CRDT document.
+**② Live Sync Engine (CRDT)** — *the real-time core.* Holds the shared codebase as a CRDT document.
 Every edit — from a human's keystrokes or their background agent — is a CRDT update that converges on
 every session with no lost work and no merge step. Built on **`pycrdt`** (Python bindings to Yjs/Yrs).
 
@@ -139,8 +137,8 @@ human edits and are attributed to that session.
 
 **⑤ Semantic Conflict Watcher** — sits above the CRDT. Detects when converged state is broken
 (won't parse/compile) or when two sessions changed the same logical unit incompatibly, and raises a
-**shared resolution card** to the involved humans. This is the code-specific layer Google Docs doesn't
-need.
+**shared resolution card** to the involved humans. This is the code-specific layer plain text
+collaboration doesn't need.
 
 **⑥ Shared Context Store (per project)** — structured contracts, ADRs, and auto-generated file
 summaries — how agents across different sessions understand the one shared project.
@@ -149,7 +147,7 @@ summaries — how agents across different sessions understand the one shared pro
 `wait_for_signal`, `raise_resolution`, …). MCP so a stock Claude Code CLI can eventually join a project.
 
 **⑧ Presence + Event Bus** — live cursors, "who/which agent is editing what," and activity feed; Redis
-pub/sub fan-out to all sessions. The Google-Docs "see everyone's cursor" layer.
+pub/sub fan-out to all sessions.
 
 **⑨ Snapshot / Git Service** — periodically and on milestones, checkpoints the live CRDT state into git
 with per-change attribution `(session, human, agent)`. Git is the durable history and the export, not
@@ -160,11 +158,10 @@ the live working mechanism.
 - Making the **project** the top-level object is what removes the white paper's load-bearing
   "single-principal assumption": presence, history, and context key off the project; many sessions
   attach to it.
-- A **CRDT** is the right primitive because it is *exactly* what Google-Docs-class editors use, it
-  guarantees convergence without a central lock, and — crucially for a Python team — **`pycrdt` speaks
-  the Yjs wire protocol**, so the Python server interoperates natively with a future Monaco/Yjs web
-  editor. The backend stays Python end-to-end; the eventual "real Google Docs feel" web UI is a thin
-  client.
+- A **CRDT** is the right primitive because it guarantees convergence without a central lock, and —
+  crucially for a Python team — **`pycrdt` speaks the Yjs wire protocol**, so the Python server
+  interoperates natively with a future web editor. The backend stays Python end-to-end; an eventual
+  visual editor is a thin client.
 
 ---
 
@@ -225,21 +222,20 @@ Agent B: implements endpoint, then publish_context(contract=user-api-v1)
 The Live Sync Engine holds the project as a **CRDT** (Conflict-free Replicated Data Type). Properties
 that matter:
 
-- **Convergence:** every session's copy is guaranteed identical after updates exchange — like Google
-  Docs.
+- **Convergence:** every session's copy is guaranteed identical after updates exchange.
 - **No lost edits:** concurrent keystrokes/agent-writes interleave deterministically; nobody's work is
   dropped.
 - **No central lock:** sessions edit freely; ordering is resolved by the CRDT, not by waiting.
 
-**Why CRDT over Operational Transform:** both can power Google-Docs-style editing, but OT needs a
-central transform authority and is famously tricky to get right; modern collaborative editors
-(Yjs/Yrs) are CRDT-based, and `pycrdt` gives us a battle-tested Python implementation that is
-wire-compatible with the JS ecosystem.
+**Why CRDT over Operational Transform:** both can power real-time editing, but OT needs a central
+transform authority and is famously tricky to get right; modern collaborative editors (Yjs/Yrs) are
+CRDT-based, and `pycrdt` gives us a battle-tested Python implementation that is wire-compatible with the
+JS ecosystem.
 
 ### 5.2 Layer 2 — Semantic conflict detection: surfaced to humans
 
 The CRDT guarantees the text *converges*, not that it is *correct code*. The Semantic Conflict Watcher
-catches what Google Docs never has to:
+catches what plain text collaboration never has to:
 
 | Detection | How |
 |---|---|
@@ -251,12 +247,11 @@ On a flag, the Watcher **freezes just that region** and opens a **shared resolut
 involved sessions (§4.2). Everything else in the project keeps flowing — the freeze is surgical, not a
 whole-file lock.
 
-### 5.3 Presence as soft conflict-avoidance (the Google Docs trick)
+### 5.3 Presence as soft conflict-avoidance
 
 Most conflicts never happen because **you can see where everyone is.** Presence shows live: "Agent C is
-rewriting `login()` right now." Humans and agents naturally avoid the spot — the same way Google Docs
-collaborators don't fight over the same sentence. This is advisory (shown, not enforced), so it never
-blocks anyone.
+rewriting `login()` right now." Humans and agents naturally avoid the spot. This is advisory (shown, not
+enforced), so it never blocks anyone.
 
 ### 5.4 Conflicting *instructions* (not just edits)
 
@@ -351,9 +346,9 @@ Nothing else.
 | **4 — Context + measure** | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed snapshots to git; session export; **run the experiment** (below). |
 
 **Client:** a Python **Textual** TUI showing your agent chat + a live view of the shared project +
-presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a "real Google Docs feel"
-Monaco/Yjs **web** editor is a thin Phase-2 client over the *same Python backend* — the team stays in
-Python for everything that matters.)
+presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a visual **web** editor with
+live cursors is a thin Phase-2 client over the *same Python backend* — the team stays in Python for
+everything that matters.)
 
 **Excluded from MVP:** DevOps/Reviewer roles, custom roles, web editor, billing, AST-level merge of
 incompatible units (MVP surfaces them, doesn't auto-merge).
@@ -377,7 +372,7 @@ one live Backyard project; **Arm 2** — the same two on separate agent sessions
 | Concern | Choice | Why |
 |---|---|---|
 | Server | **FastAPI + uvicorn** | async, native WebSocket, Pydantic-validated schemas |
-| **Live sync (the Google Docs core)** | **`pycrdt`** (Yjs/Yrs bindings) + **`pycrdt-websocket`** | CRDT convergence, no lost edits; **Yjs-wire-compatible** so a future web editor reuses this exact backend |
+| **Live sync (the real-time core)** | **`pycrdt`** (Yjs/Yrs bindings) + **`pycrdt-websocket`** | CRDT convergence, no lost edits; **Yjs-wire-compatible** so a future web editor reuses this exact backend |
 | Concurrency | **asyncio** | one loop; natural ordering of updates |
 | Presence / pub-sub | FastAPI **WebSocket** + **`redis.asyncio`** | live cursors + fan-out to all sessions |
 | Durable store | **Postgres 16** + **SQLAlchemy 2 (async)** + **Alembic** | contracts, ADRs, summaries, audit |
@@ -390,10 +385,10 @@ one live Backyard project; **Arm 2** — the same two on separate agent sessions
 | Tests | **pytest** + **pytest-asyncio** + **fakeredis** | CRDT-edit and watcher correctness first |
 | Dev infra | **docker-compose** (redis + postgres) | one-command local stack |
 
-**Python vs. TypeScript:** Python is the right call — and the one thing that used to argue for JS
-(Google-Docs-style CRDT lives in the JS world) is neutralized by **`pycrdt`**, which is the Rust/Yjs
-CRDT with Python bindings and the *same wire protocol* as JS clients. We get the Google Docs core in
-Python today, and any web editor we add later just talks Yjs to this same server.
+**Python vs. TypeScript:** Python is the right call. The one thing that normally argues for JS here —
+real-time-collaboration CRDTs live in the JS world — is neutralized by **`pycrdt`**, which is the
+Rust/Yjs CRDT with Python bindings and the *same wire protocol* as JS clients. We get the real-time core
+in Python today, and any web editor we add later just talks Yjs to this same server.
 
 ---
 
@@ -437,8 +432,8 @@ the riskiest surfaces (Fatal Risks II & IV) and come first.
 ## 13. Roadmap
 
 - **Phase 1 — MVP (4 wks):** §10. *Do two people + two background agents on one live project beat PRs?*
-- **Phase 2 — Platform (3 mo):** DevOps + Reviewer roles; cross-domain proposals; ADRs; **Monaco/Yjs web
-  editor** (the true Google-Docs feel, thin client over the same Python backend); AST-level merge
+- **Phase 2 — Platform (3 mo):** DevOps + Reviewer roles; cross-domain proposals; ADRs; **web editor**
+  (a visual client with live cursors, a thin client over the same Python backend); AST-level merge
   suggestions for incompatible units; session reconnect; RBAC + invite links; CI webhook into the live
   project; load test to ~10 concurrent sessions; closed beta (~20 teams).
 - **Phase 3 — Product (6 mo):** Kubernetes session isolation; SSO/SAML; audit/retention (SOC 2 prep);
@@ -462,7 +457,7 @@ the riskiest surfaces (Fatal Risks II & IV) and come first.
 ## 15. Revenue Model
 
 Charge for the **collaboration layer**; pass model tokens through at cost (shown per session). The value
-sold is the live shared project, the CRDT sync, conflict resolution, shared context, presence, and
+sold is the live shared project, the real-time sync, conflict resolution, shared context, presence, and
 audit — not the API call.
 
 - **Free:** 1 live project, 2 sessions, built-in roles, terminal client.
@@ -480,7 +475,7 @@ the first line of code (Fatal Risk V).
    edits as atomic patches while humans type live? (Recommended: CRDT for both; agents emit edits as
    CRDT updates so they stream like a fast collaborator.)
 2. **Session privacy:** confirm humans see each other's *code edits + presence* but **not** each other's
-   agent chat. (Recommended: yes — that's the Google Docs analog.)
+   agent chat. (Recommended: yes.)
 3. **Snapshot cadence:** time-based, on milestones, on every settle, or human-triggered "commit point"?
 4. **Resolution scope:** does a §5 decision bind just the region now, or persist as an ADR constraining
    future edits? (Recommended: human picks "just this" vs. "record as ADR" on the card.)
@@ -489,12 +484,11 @@ the first line of code (Fatal Risk V).
 
 ## 17. Conclusion
 
-The product is stated in one line: **Google Docs for AI-assisted coding** — many humans, each logging
-into their own session with their own background agent, all editing one live shared project, with
-conflicts surfaced to the people involved to settle between themselves. The architecture above makes
-that buildable in Python today: a CRDT live-sync core (`pycrdt`) for the always-merged Google Docs
-guarantee, a semantic watcher for the one thing code needs that prose doesn't, and a per-session agent
-at every seat.
+The product is one shared project that the whole team contributes to at once, in real time — each person
+logging into their own private session with their own background agent, with conflicts surfaced to the
+people involved to settle between themselves. The architecture above makes that buildable in Python
+today: a CRDT live-sync core (`pycrdt`) for the always-merged guarantee, a semantic watcher for the one
+thing code needs that prose doesn't, and a per-session agent at every seat.
 
 The next move is §10 — two humans, two sessions, two background agents, one live project, four weeks —
 and the experiment in §10.1 to learn whether the empty quadrant is empty because it's hard, or because

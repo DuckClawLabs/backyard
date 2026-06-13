@@ -1,7 +1,7 @@
 # Backyard — Architecture Reference
 
-**Google Docs for AI-assisted coding:** many humans, each with their own private session + background
-agent, all editing one live shared project in real time. Full rationale in
+**Multi-human, multi-agent collaborative coding:** many humans, each with their own private session +
+background agent, all contributing to one live shared project in real time. Full rationale in
 [`technical-report.md`](./technical-report.md).
 
 ---
@@ -10,7 +10,7 @@ agent, all editing one live shared project in real time. Full rationale in
 
 ```
                           ┌──────────── ONE LIVE PROJECT ────────────┐
-                          │      (shared codebase = the "Doc", CRDT)  │
+                          │        (the shared codebase, CRDT)        │
                           └───────────────────────────────────────────┘
                               ▲            ▲            ▲           ▲
   ┌───────────┐        ┌───────────┐ ┌───────────┐         ┌───────────┐
@@ -30,7 +30,7 @@ agent, all editing one live shared project in real time. Full rationale in
 | # | Component | Responsibility |
 |---|---|---|
 | ① | **Project Registry** | Owns projects; attaches/detaches sessions; everything keys off project + session. |
-| ② | **Live Sync Engine (CRDT)** | The Google Docs core. Shared codebase as a `pycrdt` doc; every human/agent edit converges on all sessions, lossless, no merge step, no lock. |
+| ② | **Live Sync Engine (CRDT)** | The real-time core. Shared codebase as a `pycrdt` doc; every human/agent edit converges on all sessions, lossless, no merge step, no lock. |
 | ③ | **Session Workspace** (×N) | Per-human private space: chat, context, cursor/presence, live project view. |
 | ④ | **Agent Gateway** (×N) | Wraps Anthropic API for that session's background agent; applies its edits **as CRDT updates** (live + attributed). |
 | ⑤ | **Semantic Conflict Watcher** | Above the CRDT: detects broken/contradictory converged code; freezes the region; raises a shared resolution card to involved humans. |
@@ -44,8 +44,8 @@ agent, all editing one live shared project in real time. Full rationale in
 ## Two-layer conflict model
 
 **Layer 1 — Text convergence (CRDT).** Automatic and lossless. Every session converges to identical
-text; concurrent edits interleave deterministically; no central lock. (`pycrdt` = Yjs/Yrs, the tech
-behind Google-Docs-class editors; wire-compatible with JS clients.)
+text; concurrent edits interleave deterministically; no central lock. (`pycrdt` = Yjs/Yrs; wire-
+compatible with JS clients.)
 
 **Layer 2 — Semantic conflict detection.** The text converges but may be broken *code*. The Watcher:
 - parse-checks converged regions (`ast` / `tree-sitter`),
@@ -54,7 +54,7 @@ behind Google-Docs-class editors; wire-compatible with JS clients.)
   humans, who **choose between themselves** (keep-A / keep-B / merged). No rank-based auto-winner.
 
 **Presence as soft avoidance:** seeing "Agent C is rewriting `login()` now" prevents most collisions —
-advisory, never blocking (the Google Docs trick).
+advisory, never blocking.
 
 **Conflicting instructions** (A: "Postgres" / B: "SQLite") follow the same path: agents **stop and
 surface** via `raise_resolution`; humans settle it.
