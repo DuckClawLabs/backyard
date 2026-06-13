@@ -1,41 +1,60 @@
 # Backyard
 
-**Multi-human, multi-agent collaborative coding.**
+**Google Docs for AI-assisted coding.**
 
 Every AI coding agent today assumes *one human per session*. But software is built by teams. **Backyard**
-is the design for the missing quadrant: *many humans, many agents, one shared project, in real time* —
-a shared workspace where each engineer keeps their own AI agent, everyone sees the work as it happens,
-the agents coordinate instead of trading pull requests, and disagreements are settled **together, in one
-session** rather than days later in review.
+fills the missing quadrant with a specific shape:
 
-Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
+> Many humans log in. **Each gets their own private session with their own background AI agent.** All of
+> those sessions edit **one live shared project at the same time — like Google Docs.** Everyone's edits,
+> and every agent's edits, appear live for everyone. No pull requests, no merge step. When two changes
+> truly conflict, the collision is surfaced to the humans involved and they **choose between
+> themselves.**
+
+The mental model is exact: **Google Docs, but the document is a codebase and every editor has an AI
+agent working alongside them.** Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
 
 ## Status
 
-**Design phase.** This repo currently holds the technical report and architecture — the blueprint for
-implementation. No application code yet.
+**Design phase.** This repo holds the technical report and architecture — the blueprint. No application
+code yet.
 
 ## Documents
 
 - **[Technical Report](docs/technical-report.md)** — the full design, end to end.
-- **[Architecture Reference](docs/architecture.md)** — condensed components + data flows.
+- **[Architecture Reference](docs/architecture.md)** — components + data flows.
 - **[Roadmap](docs/roadmap.md)** — MVP, platform, and product phases.
+
+## The shape
+
+- **Project** = the shared, live codebase (the "Doc"). The unit everyone collaborates on.
+- **Session** = one human's private space: their chat, context, and **background agent**. Many sessions
+  attach to one project. You see others' *edits and cursors*, not their private agent chat.
+
+```
+                  ┌──────── ONE LIVE PROJECT (CRDT) ────────┐
+                  └──────────────────────────────────────────┘
+                     ▲           ▲           ▲           ▲
+               Session A    Session B    Session C    Session D
+              (human+agent, private — each edits the live project)
+```
 
 ## The one question
 
-> *Do two humans driving agents in one shared session ship faster than two humans on separate sessions
-> merging through pull requests?*
+> *Do two humans + two background agents on one live project ship faster than two humans on separate
+> sessions merging through pull requests?*
 
-The 4-week MVP exists to answer exactly that. Everything else follows from the result.
+The 4-week MVP exists to answer exactly that.
 
 ## Core design choices
 
-- **Stack:** Python — FastAPI + asyncio, Redis (locks/pub-sub), Postgres (durable state), the
-  `anthropic` and `mcp` SDKs, a Textual terminal client.
-- **Conflicts are surfaced to the session.** When two people (or their agents) collide — on a file or on
-  contradicting instructions — the conflict is posted into the one shared session and the humans **choose
-  between themselves**. No silent "higher-rank wins."
-- **Roles are hints, not handcuffs.** Domain ownership routes work and sets defaults; helping elsewhere
-  just asks first, in the open.
-- **Agents coordinate through a structured substrate** (contracts, decisions, file summaries, signals) —
-  never by sharing raw conversation history — so context windows and costs stay bounded.
+- **Stack:** Python — FastAPI + asyncio, **`pycrdt`** (the Google-Docs-style CRDT, Yjs-compatible) for
+  live sync, Redis (presence/pub-sub), Postgres (durable state), the `anthropic` and `mcp` SDKs, a
+  Textual terminal client. The CRDT backend is Yjs-wire-compatible, so a later web editor is a thin
+  client over the *same Python server* — the team stays in Python.
+- **Two-layer conflicts.** Text **auto-converges** (CRDT, lossless, no merge step). Only *semantic*
+  conflicts — code that converged but is broken or contradictory — **surface to the humans involved**,
+  in a shared view, to choose between themselves. No silent "higher-rank wins."
+- **Agents are per-person and run in the background.** Each session's agent edits the live project the
+  same way its human does — streaming, live, attributed.
+- **Roles are hints, not handcuffs.** Domain ownership routes work; helping elsewhere just asks first.

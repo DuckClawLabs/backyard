@@ -1,418 +1,374 @@
-# Backyard — Multi-Human, Multi-Agent Collaborative Coding
+# Backyard — Google Docs for AI-Assisted Coding
 
-**A technical design for the "unbuilt product."**
+**Multiple humans, each with their own background AI agent, editing one live shared project in real time.**
 Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
-Version 0.1 · Status: Design · Stack: Python
+Version 0.2 · Status: Design · Stack: Python
 
 ---
 
 ## 0. Executive Summary
 
 The white paper establishes the gap: every AI coding agent assumes **one human per session**, yet
-software is built by teams. **Backyard** is the design for the missing quadrant — *many humans, many
-agents, one shared project, in real time*.
+software is built by teams. **Backyard** fills the missing quadrant with a specific shape:
 
-A backyard is a shared space a household works in together. The product is exactly that: a shared
-workspace where each engineer keeps their own AI agent, but all of them see one another's work as it
-happens, coordinate through the agents instead of through pull requests, and resolve disagreements
-**together, out loud, in one session** rather than days later in code review.
+> Many humans log in. **Each gets their own private session with their own background agent.** All of
+> those sessions edit **one live shared project at the same time — like Google Docs.** Every human's
+> edits, and every agent's edits, appear live for everyone. When two changes truly conflict, the
+> collision is surfaced to the humans involved and they **choose between themselves.**
 
-This report specifies the system end-to-end: components, data flow, the conflict-resolution engine,
-the multi-principal trust model, the role system, shared-context management, the inter-agent protocol,
-a 4-week MVP that falsifies the core hypothesis as cheaply as possible, the Python tech stack, and a
-phased roadmap. Every one of the white paper's **five fatal risks** is mapped to a concrete mitigation.
+The mental model is exact: **Google Docs, but the document is a codebase and every editor has an AI
+agent working alongside them in the background.** Google Docs solved real-time collaboration for prose
+with no pull requests, no merge step, no "who has the file open." Backyard does the same for code — and
+adds a per-person agent to each seat.
 
-**The one question the MVP must answer:** *Do two humans driving agents in one shared session ship
-faster than two humans on separate sessions merging through pull requests?* Everything else follows
-from that result.
+This report specifies the system end-to-end: the project-centric architecture, the live-sync engine
+(CRDT), how separate sessions and background agents share one project, the two-layer conflict model
+(automatic text convergence + human-resolved semantic conflicts), the trust model, roles, shared
+context, the inter-agent protocol, a 4-week MVP, the Python stack, and a phased roadmap — with every one
+of the white paper's **five fatal risks** mapped to a concrete mitigation.
 
 ---
 
-## 1. Problem & Thesis
+## 1. The Core Idea (and how it differs from "shared session")
 
-### 1.1 What's broken
+### 1.1 Project-centric, not session-centric
 
-The pull-request model predates AI agents by two decades. It was designed so that *humans* working in
-*isolation* could reconcile their work *asynchronously*. AI agents inherited this model unquestioned.
-The result, for a team using agents today:
+The unit everyone shares is the **Project** — the live codebase. It is the Google Doc.
 
-- **Context is lost at every boundary.** Human A's agent reasons through a decision; Human B sees only
-  the diff, hours later, with none of the reasoning.
-- **Coordination is out-of-band.** "Is the API ready?" is a Slack message or a stand-up, not something
-  the agents can answer for each other.
-- **Mentorship is scheduled, not ambient.** A senior reviews *after* the work, never *during*.
-- **Handoffs re-pay context cost.** Across time zones, the first hour of every handoff is
-  re-explanation.
+Each human has their **own Session**: their private chat, their own context, and their own **background
+agent(s)** working on their behalf. Sessions are *isolated from each other* — you don't read someone
+else's conversation — exactly as in Google Docs you see others' edits and cursors but not their private
+notes.
 
-### 1.2 Thesis
+```
+                          ┌──────────── ONE LIVE PROJECT ────────────┐
+                          │      (the shared codebase = the Doc)      │
+                          └───────────────────────────────────────────┘
+                              ▲            ▲            ▲           ▲
+          live edits          │            │            │           │   live edits
+        ┌─────────────────────┘     ┌──────┘      ┌─────┘     └─────────────────┐
+        │                            │             │                            │
+  ┌───────────┐               ┌───────────┐  ┌───────────┐               ┌───────────┐
+  │ Session A │               │ Session B │  │ Session C │               │ Session D │
+  │  Human A  │               │  Human B  │  │  Human C  │               │  Human D  │
+  │ + Agent A │               │ + Agent B │  │ + Agent C │               │ + Agent D │
+  │ (private) │               │ (private) │  │ (private) │               │ (private) │
+  └───────────┘               └───────────┘  └───────────┘               └───────────┘
+```
 
-If multiple humans share **one live session** in which each has their **own agent**, and the agents
-coordinate through a shared substrate, then the coordination that today costs meetings and PR latency
-collapses to near-zero human time — *provided* concurrent edits and conflicting instructions are
-resolved fast and obviously. Backyard is the architecture that makes that provision true.
+### 1.2 Three things this gets right that pull requests don't
 
-### 1.3 Non-goals
+- **No merge step.** Like Google Docs, the shared state is *always already merged*. There is no "open a
+  PR, wait, resolve conflicts, merge" — your edits and your agent's edits land in the live project as
+  they happen.
+- **Everyone sees everything, live.** Human C watches Human A's agent refactor a module in real time,
+  not in a diff three hours later. Context is never reconstructed.
+- **Agents work in the background, per person.** Each human's agent is doing real work autonomously
+  inside that human's session; its output flows into the shared project the same way the human's own
+  keystrokes do.
 
-- Not a multi-agent orchestrator for *one* human (that is Anthropic's Agent Teams — the inverse problem).
-- Not a Google-Docs-style character-by-character co-editor of source (that ignores code semantics).
-- Not a replacement for git history — it *produces* clean git history as a byproduct.
+### 1.3 The one hard problem this creates
+
+Google Docs works because *any* interleaving of prose edits is still valid prose. **Code is not prose:**
+two cleanly-merged edits can produce a file that does not compile or that is logically contradictory.
+So Backyard needs **two layers** (see §5):
+
+1. **Text convergence** — guarantees everyone's view is identical and no keystroke is ever lost
+   (this is the CRDT, the Google Docs guarantee).
+2. **Semantic conflict detection** — notices when the converged code is broken or two sessions changed
+   the same logical unit incompatibly, and **surfaces it to the humans involved to choose between
+   themselves.**
 
 ---
 
 ## 2. Design Principles
 
-1. **One session, many principals.** The session — not the user — is the top-level object. Everything
-   (locks, context, audit, billing) hangs off the session, not off a single account.
-2. **Conflicts are social, resolved socially.** A collision is surfaced into the shared session and the
-   humans decide together. The system's job is to *detect fast, present clearly, apply faithfully* — not
-   to pick a winner behind their backs.
-3. **Agents coordinate through a substrate, never by reading each other's minds.** No agent ingests
-   another agent's raw conversation. They exchange **structured artifacts** (contracts, decisions, file
-   summaries, signals) through a shared store. This keeps context windows small and costs bounded.
-4. **Roles are hints, not handcuffs.** Domain ownership routes work and sets defaults; it never silently
-   blocks a human from helping elsewhere — it just asks first, in the open.
-5. **Local-first, server-coordinated.** The repo and edits live on participants' machines / a shared
-   workspace; the server coordinates state. This keeps trust and latency low and gives a clean paid-tier
-   boundary (hosted coordination).
-6. **Falsifiable before fancy.** Build the cheapest thing that can disprove the thesis. Resist every
-   feature that doesn't help answer the core question.
+1. **The project is the shared object; sessions are private.** Locks, presence, and history hang off
+   the **project**; chat, context, and agent state hang off each human's **session**.
+2. **Always-merged, never-blocked.** Real-time convergence (CRDT) means there is no merge step and no
+   file you must wait for. Editing is live, like Google Docs.
+3. **Auto-merge the text, surface the meaning.** Text-level collisions converge automatically; only
+   *semantic* conflicts interrupt a human — and then only the humans actually involved.
+4. **Conflicts are resolved socially.** When a real conflict surfaces, it goes to a **shared resolution
+   view** the involved humans both see, and they decide together. The system never silently picks a
+   winner by rank.
+5. **Agents coordinate through the project, not through each other's minds.** No agent reads another
+   session's conversation. They share the **live code** plus **structured artifacts** (contracts, ADRs,
+   file summaries). Context windows and cost stay bounded.
+6. **Falsifiable before fancy.** Build the cheapest thing that proves two people + two background agents
+   on one live project beat two people merging via PRs.
 
 ---
 
 ## 3. System Architecture
 
-### 3.1 The seven components
+### 3.1 The nine components
 
 ```
-                         ┌───────────────────────────────────────────────┐
-                         │            BACKYARD SESSION SERVER             │
-                         │           (Python · FastAPI · asyncio)         │
-                         │                                               │
-   Human A ─ CLI/TUI ◄──►│  ① Session Orchestrator   ② Agent Gateway(×N) │
-   Human B ─ CLI/TUI ◄──►│  ③ Conflict Resolver      ④ Shared Context    │
-   Human C ─ CLI/TUI ◄──►│  ⑤ MCP Hub                ⑥ Workspace/Git Svc │◄──► Shared
-                         │  ⑦ Event Bus + Audit Log                      │     Git Repo
-                         └───────────────────────────────────────────────┘
-                                          │
-                                   Redis (locks, pub/sub, hot state)
-                                   Postgres (history, contracts, audit)
+┌──────────────────────────── BACKYARD PROJECT SERVER ────────────────────────────┐
+│                              (Python · FastAPI · asyncio)                         │
+│                                                                                  │
+│   ② Live Sync Engine (CRDT)      ⑤ Semantic Conflict Watcher                     │
+│   ③ Session Workspace (×N)       ⑥ Shared Context Store (per project)            │
+│   ④ Agent Gateway (×N)           ⑦ MCP Hub                                       │
+│   ⑧ Presence + Event Bus         ⑨ Snapshot/Git Service                         │
+│                                                                                  │
+│   ① Project Registry  ── owns projects, attaches sessions, keys everything ──    │
+└──────────────────────────────────────────────────────────────────────────────────┘
+        │                         │                          │
+   Session A (Human+Agent)   Session B (Human+Agent)    Session C (Human+Agent)
+        └─────────────────────────┴──── all edit ───────────┘
+                                   ▼
+                         ONE LIVE PROJECT (CRDT doc)  ⇄  Redis (presence, pub/sub)
+                                                       ⇄  Postgres (history, context)
 ```
 
-**① Session Orchestrator** — the single source of truth for *who is in the session, what role they
-hold, what each agent is doing, and what is locked*. A state machine; one logical instance per session.
+**① Project Registry** — owns projects; attaches/detaches sessions; everything keys off
+`project_id` (shared) and `session_id` (per human).
 
-**② Agent Gateway (one per human-agent pair)** — wraps the Anthropic API for that human's agent.
-Injects the shared **session briefing** into each turn, streams the agent's output to *all*
-participants, and **intercepts every tool call** (file writes, shell) before it runs to enforce roles
-and route through the Conflict Resolver. This is the trust boundary; its correctness is load-bearing.
+**② Live Sync Engine (CRDT)** — *the Google Docs core.* Holds the shared codebase as a CRDT document.
+Every edit — from a human's keystrokes or their background agent — is a CRDT update that converges on
+every session with no lost work and no merge step. Built on **`pycrdt`** (Python bindings to Yjs/Yrs).
 
-**③ Conflict Resolver (CRE)** — receives every proposed file mutation, detects collisions via
-per-file vector clocks + 3-way diff, **auto-merges only line-disjoint changes**, and **escalates
-everything else into the shared session** for the humans to settle.
+**③ Session Workspace (one per human)** — a human's private space: their chat history, their context,
+their cursor/presence, and a live view of the shared project. Isolated from other sessions.
 
-**④ Shared Context Store** — a *structured* store (not a vector DB) of contracts, architecture
-decisions (ADRs), and auto-generated file summaries. The thing agents read to understand each other.
+**④ Agent Gateway (one per session)** — wraps the Anthropic API for that human's **background agent**.
+The agent's file edits are applied *as CRDT updates*, so they stream into the live project exactly like
+human edits and are attributed to that session.
 
-**⑤ MCP Hub** — exposes the coordination API to every agent as Model Context Protocol tools
-(`publish_context`, `wait_for_signal`, `propose_cross_domain_edit`, …). MCP is chosen so that, in
-time, a stock Claude Code CLI can join a Backyard session by pointing at this server.
+**⑤ Semantic Conflict Watcher** — sits above the CRDT. Detects when converged state is broken
+(won't parse/compile) or when two sessions changed the same logical unit incompatibly, and raises a
+**shared resolution card** to the involved humans. This is the code-specific layer Google Docs doesn't
+need.
 
-**⑥ Workspace & Git Service** — owns the filesystem and all git operations. No agent touches git
-directly; every commit flows through here, tagged with `(session, role, agent-turn)` metadata, on
-per-role branches that periodically integrate.
+**⑥ Shared Context Store (per project)** — structured contracts, ADRs, and auto-generated file
+summaries — how agents across different sessions understand the one shared project.
 
-**⑦ Event Bus + Audit Log** — every state change is an event, fanned out to all clients (live UI) via
-Redis pub/sub and persisted to Postgres (replay, audit, billing attribution).
+**⑦ MCP Hub** — exposes coordination tools to every agent as MCP tools (`publish_context`,
+`wait_for_signal`, `raise_resolution`, …). MCP so a stock Claude Code CLI can eventually join a project.
+
+**⑧ Presence + Event Bus** — live cursors, "who/which agent is editing what," and activity feed; Redis
+pub/sub fan-out to all sessions. The Google-Docs "see everyone's cursor" layer.
+
+**⑨ Snapshot / Git Service** — periodically and on milestones, checkpoints the live CRDT state into git
+with per-change attribution `(session, human, agent)`. Git is the durable history and the export, not
+the live working mechanism.
 
 ### 3.2 Why this shape
 
-- The **session as top-level object** is the single architectural decision that removes the
-  "single-principal assumption" the white paper identifies as load-bearing. Locks, context, audit, and
-  billing all key off `session_id + participant_id`, never a lone account.
-- **One Gateway per agent** keeps each agent's context isolated and its costs attributable, while the
-  shared Orchestrator + Context Store give them common ground without a shared context window.
+- Making the **project** the top-level object is what removes the white paper's load-bearing
+  "single-principal assumption": presence, history, and context key off the project; many sessions
+  attach to it.
+- A **CRDT** is the right primitive because it is *exactly* what Google-Docs-class editors use, it
+  guarantees convergence without a central lock, and — crucially for a Python team — **`pycrdt` speaks
+  the Yjs wire protocol**, so the Python server interoperates natively with a future Monaco/Yjs web
+  editor. The backend stays Python end-to-end; the eventual "real Google Docs feel" web UI is a thin
+  client.
 
 ---
 
 ## 4. Data Flow
 
-### 4.1 Clean edit (no collision)
+### 4.1 A human (or their background agent) edits — live, no merge
 
 ```
-Human A: "add email validation to the signup form"
-  → Agent Gateway A injects session briefing, calls Claude (streaming)
-  → Claude emits tool_use: write_file("ui/signup.py", <content>)
-  → Gateway A intercepts → role check (A owns ui/**) → OK
-  → CRE: lock signup.py (Redis SETNX), vector clock fresh → grant
-  → write applied in shared workspace; Git Svc commits to session/<id>/frontend
-  → FILE_CHANGED event → Event Bus → B's and C's terminals update live
-  → Context Store regenerates signup.py summary; briefing for others refreshed
-  → lock released
+Human B types  (or Agent B emits a write to api/users.py)
+  → applied as a CRDT update in Session B's view
+  → Live Sync Engine merges it into the shared project (always-converged)
+  → update broadcast to Sessions A, C, D → their views change in real time
+  → Presence shows "Agent B editing api/users.py"
+  → Semantic Watcher re-checks the touched region (parse/compile/logical)
+  → Context Store refreshes api/users.py summary
+  → Snapshot Service folds it into the next checkpoint, attributed to Session B
 ```
 
-### 4.2 Collision (two agents target one file) — **surfaced to the session**
+No lock was taken. No PR was opened. The change is already part of the shared project.
+
+### 4.2 A real conflict — surfaced to the humans involved
 
 ```
-Agent A and Agent B both propose writes to api/users.py within ~200ms
-  → CRE grants A's lock, records B's proposal against A's vector clock
-  → CRE computes 3-way diff [base, A, B]:
-       • disjoint lines  → auto-merge, apply both, done (no human bother)
-       • overlapping     → CONFLICT raised INTO THE SHARED SESSION
-  → Both humans see one conflict card in their terminals:
-       "api/users.py — A wants X, B wants Y (same lines). Decide together."
-       side-by-side diff, with each agent's stated intent
-  → A and B talk it out in the session (they're both right here, right now)
-       and pick: keep A / keep B / a merged third option either agent drafts
-  → CRE applies the chosen result, releases lock, emits FILE_RESOLVED
+Agent A and Agent B edit the SAME function in api/users.py within the same window
+  → CRDT converges the TEXT (nothing is lost) ...
+  → ... but the Semantic Watcher sees the two edits are logically incompatible
+        (e.g. both rewrote validate() with different signatures)
+  → Watcher freezes that region and opens a SHARED RESOLUTION CARD
+        visible to Human A and Human B (the two involved), showing:
+          • A's version + Agent A's stated intent
+          • B's version + Agent B's stated intent
+          • the broken/contradictory converged result
+  → A and B — already online, already in their own sessions — choose between themselves:
+          keep A / keep B / a merged third version either agent drafts on request
+  → chosen version applied to the live project; region unfrozen; everyone re-syncs
+  → decision logged with who-decided-what
 ```
 
-No timer silently picks a winner. The humans are *already in the room* — that is the whole point of the
-product, and the resolution flow leans on it.
+This is the precise meaning of "conflicts posted to choose between themselves": only the people whose
+changes collided are pulled in, into a shared view, and they settle it together.
 
-### 4.3 Cross-agent information (Frontend needs the API shape)
+### 4.3 Cross-session coordination (Frontend needs the Backend's API shape)
 
 ```
-Agent A: wait_for_signal(role="backend", milestone="user-api", timeout=300s)   ← no human action
+Agent A: wait_for_signal(topic="user-api", timeout=300s)          ← no human action
 Agent B: implements endpoint, then publish_context(contract=user-api-v1)
-                                     + signal_ready(milestone="user-api")
-  → MCP Hub resolves A's pending wait, hands A the typed contract
-  → A builds against the real shape; the "is the API ready?" stand-up never happens
+                                    + signal_ready(topic="user-api")
+  → MCP Hub hands Agent A the typed contract; A builds against the real shape
+  → the "is the API ready yet?" message never has to be sent
 ```
-
-Agents never exchange raw reasoning — only the structured contract crosses the boundary.
 
 ---
 
-## 5. Conflict Resolution Engine (CRE)
+## 5. The Two-Layer Conflict Model
 
-### 5.1 Algorithm choice
+### 5.1 Layer 1 — Text convergence (CRDT): automatic, lossless
 
-| Option | Verdict |
+The Live Sync Engine holds the project as a **CRDT** (Conflict-free Replicated Data Type). Properties
+that matter:
+
+- **Convergence:** every session's copy is guaranteed identical after updates exchange — like Google
+  Docs.
+- **No lost edits:** concurrent keystrokes/agent-writes interleave deterministically; nobody's work is
+  dropped.
+- **No central lock:** sessions edit freely; ordering is resolved by the CRDT, not by waiting.
+
+**Why CRDT over Operational Transform:** both can power Google-Docs-style editing, but OT needs a
+central transform authority and is famously tricky to get right; modern collaborative editors
+(Yjs/Yrs) are CRDT-based, and `pycrdt` gives us a battle-tested Python implementation that is
+wire-compatible with the JS ecosystem.
+
+### 5.2 Layer 2 — Semantic conflict detection: surfaced to humans
+
+The CRDT guarantees the text *converges*, not that it is *correct code*. The Semantic Conflict Watcher
+catches what Google Docs never has to:
+
+| Detection | How |
 |---|---|
-| **CRDTs** | Eventually consistent, no central authority — but *lose code semantics*; auto-merging two conflicting function bodies is meaningless. ✗ as the primary mechanism |
-| **Operational Transform** | Needs a central serializer — which we *have* (Orchestrator) — but is painful for tree-structured code and overkill for MVP. Defer. |
-| **3-way merge + human escalation** | Exactly what git does: auto-merge the easy case, **escalate the hard case to humans**. Matches Principle 2. ✓ **chosen** |
+| Won't parse / compile | run the language parser (`ast` for Python; `tree-sitter` elsewhere) on the converged region after each settle |
+| Same logical unit, incompatible edits | track which CRDT ranges map to which functions/classes; flag when two sessions wrote the same unit within a window |
+| Contradictory intents | agents declare an `intent` with each edit; opposing intents on one unit raise a flag |
 
-### 5.2 Per-file vector clocks
+On a flag, the Watcher **freezes just that region** and opens a **shared resolution card** to the
+involved sessions (§4.2). Everything else in the project keeps flowing — the freeze is surgical, not a
+whole-file lock.
 
-Each file carries `{role: seq}`. An agent reads at a clock, proposes a write tagged with it; the CRE
-compares against the file's current clock to know **what the agent saw**, **whether someone wrote since**,
-and **the correct 3-way base**. This is what makes "disjoint vs. overlapping" decidable.
+### 5.3 Presence as soft conflict-avoidance (the Google Docs trick)
 
-### 5.3 Lock schema (Redis)
+Most conflicts never happen because **you can see where everyone is.** Presence shows live: "Agent C is
+rewriting `login()` right now." Humans and agents naturally avoid the spot — the same way Google Docs
+collaborators don't fight over the same sentence. This is advisory (shown, not enforced), so it never
+blocks anyone.
 
-```
-key:   lock:{session}:{path}
-value: {role, participant, acquired_at, intent}   # intent = "adding email validation"
-ttl:   30s, renewed every 10s while the agent is actively writing
-```
+### 5.4 Conflicting *instructions* (not just edits)
 
-SETNX for atomicity; TTL means a crashed agent frees its lock in ≤30s (vs. minutes for a DB-connection
-lock). The human-readable `intent` is shown to others so a lock explains *why*, not just *that*.
-
-### 5.4 Conflict classes & policy
-
-| Class | Example | Policy |
-|---|---|---|
-| **A — Structural** | imports, type/signature defs | auto-merge if disjoint; else → session |
-| **B — Logic** | function bodies, conditionals | **always → session** (never auto-pick) |
-| **C — Formatting** | whitespace, trailing commas | accept later write silently |
-| **D — Generated** | lockfiles, `dist/`, migrations | exclusive to owning role; others can't write |
-
-### 5.5 Python implementation notes
-
-- 3-way merge: **`merge3`** (pure-Python diff3) or shell out to **`git merge-file`** (battle-tested,
-  already a dependency via the Git Service). MVP uses `git merge-file`; swap to `merge3` if finer
-  control is needed.
-- AST-aware detection (Phase 2): Python's stdlib **`ast`** for `.py`, **`tree-sitter`** for everything
-  else — catches "both added a `def login()`" even on different lines.
-- The CRE is a **pure, isolated module** with no I/O beyond Redis — it is the hardest correctness
-  problem and must be unit-tested to death *before* it ever touches a real session (Fatal Risk II).
+If two humans tell their agents contradictory things that affect the same artifact (A: "use Postgres";
+B: "use SQLite"), the agents **stop and surface** via `raise_resolution` rather than racing — same
+shared-card flow, same "humans choose between themselves." No rank-based auto-winner; an unresolved
+decision stays *visibly* paused, never silently guessed.
 
 ---
 
 ## 6. Multi-Principal Trust Model
 
-> **Core stance:** when humans give the agent(s) conflicting instructions, the system does **not**
-> auto-resolve by rank. It **posts the conflict into the one shared session and the humans choose
-> between themselves.** Roles set defaults and routing; humans hold the gavel.
+> **Stance:** roles and presence set defaults and routing; **humans hold the gavel.** The system
+> auto-merges text and surfaces meaning; it never resolves a real conflict by rank.
 
-### 6.1 Three things that are *not* negotiable (System level)
+**System floor (non-negotiable, no role or vote overrides):**
+- no access outside the project workspace (path-traversal blocked at the Agent Gateway);
+- no direct push to `main`/`master` — durable history is via attributed snapshots;
+- a session cannot read another session's private chat or secrets;
+- irreversible ops (delete/overwrite of whole files) require a surfaced, explicit decision.
 
-A thin floor of hard rules no role or vote can override — these are safety, not policy:
-- no file access outside the session workspace (path-traversal blocked at the Gateway);
-- no direct push to `main`/`master` — integration happens on session branches;
-- no reading another participant's secrets/environment;
-- destructive ops (delete/overwrite of shared files) always pass through the CRE.
-
-### 6.2 Everything above the floor is human-decided
-
-```
-Conflicting human instructions detected
-   (e.g. A: "use Postgres"   B: "use SQLite";
-         A: "remove the auth middleware"   B: "never remove auth")
-        │
-        ▼
-   Agents PAUSE the affected action  (they do not race ahead, they do not negotiate with each other)
-        │
-        ▼
-   DECISION CARD posted into the shared session, visible to all:
-     • what each human asked for, verbatim
-     • which artifact/domain it touches (and who nominally owns it — a hint, not a verdict)
-     • the agent's read of the trade-off
-        │
-        ▼
-   Humans resolve, in the open, by any of:
-     • talk + one person sets the decision      (default, fastest — they're already here)
-     • quick vote among present participants     (when it's genuinely a judgment call)
-     • record it as an ADR                       (when it should bind future turns)
-        │
-        ▼
-   Decision applied; logged to audit with who-decided-what; agents resume
-```
-
-There is **no silent timer-winner**. If nobody decides, the action simply stays paused — a stuck
-decision is a *visible* stuck decision, not a wrong action taken quietly. (A team may *opt in* to a
-"domain-owner breaks ties after N minutes" convenience later, but it is off by default and always
-logged.)
-
-### 6.3 What each agent is told (system prompt skeleton)
-
-```
-You are the {ROLE} agent for {human} in a shared multi-human session {id}.
-Other participants: {role:human, domain} …
-Ground rules:
-  • Before editing outside your domain, call propose_cross_domain_edit — do not just do it.
-  • Use query_shared_context / publish_context to stay in sync; never assume another role's shape.
-  • If your human's instruction conflicts with what another human told their agent,
-    STOP the affected step and call raise_session_decision — the humans will settle it together.
-  • Never take a destructive or irreversible action without an explicit, surfaced decision.
-```
-
-This is the concrete answer to the white paper's Fatal Risk III (multi-principal trust): the agent's
-default under conflicting principals is **stop and surface**, never **guess and proceed**.
+**Above the floor:** conflicting edits or instructions → freeze the affected region / pause the action →
+**shared resolution card to the involved humans** → they resolve (talk / pick / record as ADR) →
+applied + audited. An agent's default under conflict is **stop and surface**, never **guess and
+proceed** — the concrete answer to Fatal Risk III.
 
 ---
 
-## 7. Role System
+## 7. Role System (hints, not handcuffs)
 
-### 7.1 Built-in roles (domains are *defaults/hints*, not hard walls)
+Roles route work and set sensible defaults; they never silently wall a human off from helping.
 
-| Role | Default domain | Can | Asks-first to |
-|---|---|---|---|
-| **Frontend** | `ui/**`, `components/**`, `styles/**`, `pages/**` | edit domain, run FE tests, propose API contracts | touch backend/infra |
-| **Backend** | `api/**`, `services/**`, `db/**`, `middleware/**` | edit domain, run BE tests, publish API contracts, own migrations | touch UI/infra |
-| **DevOps** | `infra/**`, `*.yml`, `Dockerfile`, `.github/**` | edit domain, run all CI, trigger deploys | touch app code |
-| **Reviewer** | read-everywhere | comment, request changes, record ADRs, raise decisions | (writes via proposals only) |
+| Role | Default domain | Asks-first to touch |
+|---|---|---|
+| **Frontend** | `ui/**`, `components/**`, `styles/**`, `pages/**` | backend / infra |
+| **Backend** | `api/**`, `services/**`, `db/**`, `middleware/**` | ui / infra |
+| **DevOps** | `infra/**`, `*.yml`, `Dockerfile`, `.github/**` | app code |
+| **Reviewer** | read-everywhere; edits via proposal | — |
 
-"Asks-first" = the agent calls `propose_cross_domain_edit`, which **posts into the session** for the
-owning human to wave through — consistent with §6: collaboration is open, not blocked.
-
-### 7.2 Custom roles
-
-A session config (`backyard.toml`) can declare arbitrary roles: a name, glob domains, and a capability
-subset. Stored with the session; no code change needed.
-
-### 7.3 Enforcement point
-
-The Agent Gateway checks every tool call against the role policy *before* execution
-(`fnmatch`/`pathspec` on the path for writes; capability set for everything else). Out-of-domain writes
-aren't rejected — they're **redirected** to the proposal flow.
+"Asks-first" = the agent calls `propose_cross_domain_edit`, which appears as a lightweight card to the
+owning human — collaboration stays open, just visible. Custom roles via a per-project `backyard.toml`.
+Enforcement is at each Agent Gateway, before any edit reaches the CRDT.
 
 ---
 
 ## 8. Shared Context Architecture
 
-### 8.1 The trap to avoid
+Agents in **different sessions** never share conversation history (that would explode every context
+window and cost). They share the **live code** plus **structured artifacts**:
 
-Naively sharing every agent's conversation history would exhaust each context window in minutes and
-cost a fortune. So agents **do not** share histories. They share **structured artifacts**.
+- **Interface Contracts** — `{contract_id, endpoints[], types{}}`, published by the producing session.
+- **ADRs** — `{title, status, affects[], summary}`, the durable record of a §6 decision.
+- **File Summaries** — 2–3 sentences auto-generated after each settle; understand a file without reading
+  it.
+- **Compressed Activity Log** — every ~10 edits, a cheap Claude call distills recent project activity.
 
-### 8.2 The four artifact types
-
-- **Interface Contracts** — published by the producing role, consumed by others
-  (`{contract_id, endpoints[], types{}}`).
-- **Architecture Decisions (ADRs)** — `{title, status, affects[], summary}`; the durable record of a
-  §6 decision.
-- **File Summaries** — 2–3 sentences auto-generated after each write (`{path, summary, exports[],
-  last_by, clock}`); lets an agent understand a file without reading it.
-- **Compressed Session Log** — every ~10 turns a cheap Claude call distills recent activity to bullets.
-
-### 8.3 The session briefing (≤ ~2k tokens, injected each turn)
-
-```
-=== SESSION BRIEFING (auto) ===
-Elapsed: 47m · Present: Frontend(A), Backend(B), Reviewer(C)
-Recent:  B added GET /api/users, published user-api-v1
-         A built UserCard.py
-Contracts: user-api-v1 → GET /api/users/:id → UserDTO
-Locks:   db/schema.py (B, editing migration)
-Open decisions: none
-=== END ===
-```
-
-Constant situational awareness, bounded cost. This is the mechanism that makes coordination overhead
-*fall* instead of rise (Fatal Risk I).
-
-### 8.4 Storage
-
-Redis (hot: locks, briefings, clocks, pub/sub) + Postgres (durable: contracts, ADRs, summaries, audit).
-**No vector DB in MVP** — queries are structured (by role/path/contract-id), which is faster, cheaper,
-and never stale within a fast session. Semantic search is a Phase-2 cross-session concern.
+Each agent turn gets a **project briefing** (≤ ~2k tokens): who's online, recent activity, live presence
+(who's editing what), available contracts, and any open resolution cards. Bounded cost, constant
+situational awareness — the mechanism that makes coordination overhead *fall* (Fatal Risk I). Storage:
+Redis (hot: presence, briefings, pub/sub) + Postgres (durable: contracts, ADRs, summaries, audit). No
+vector DB in MVP.
 
 ---
 
 ## 9. Inter-Agent Protocol (MCP)
 
-Every agent's only sanctioned channel to the rest of the session is a set of **MCP tools** served by
-the Hub. Chosen over a bespoke protocol because Claude Code already speaks MCP — the long-term payoff is
-that a user's existing CLI can join a Backyard session natively.
+Each agent's sanctioned channel to the shared project and other sessions is a set of **MCP tools**.
 
 | Group | Tools |
 |---|---|
-| Context | `query_shared_context`, `publish_context`, `get_file_summary`, `get_session_status` |
-| Coordination | `propose_cross_domain_edit`, `request_clarification`, `signal_ready`, `wait_for_signal`, **`raise_session_decision`** |
-| Files (gateway-enforced) | `read_file`, `write_file`, `list_files` |
-| Review (Reviewer only) | `create_review_comment`, `approve_merge`, `request_changes` |
+| Context | `query_shared_context`, `publish_context`, `get_file_summary`, `get_project_status` |
+| Coordination | `propose_cross_domain_edit`, `request_clarification`, `signal_ready`, `wait_for_signal`, **`raise_resolution`** |
+| Editing (gateway-enforced, applied as CRDT updates) | `read_file`, `apply_edit`, `list_files` |
+| Review (Reviewer) | `create_review_comment`, `approve_change`, `request_changes` |
 
-`raise_session_decision` is the §6 primitive: it pauses the agent and posts a decision card to the
-humans. `wait_for_signal`/`signal_ready` are the §4.3 primitive that deletes the stand-up.
+`apply_edit` writes through the CRDT so agent edits are live and attributed. `raise_resolution` is the
+§5.4 primitive. `wait_for_signal`/`signal_ready` delete the stand-up (§4.3).
 
 ---
 
 ## 10. MVP — Falsify the Thesis in 4 Weeks
 
-**Scope:** 2 humans, 2 agents, 1 repo, **Frontend + Backend** roles only. File-level locking. Shared
-live transcript in a terminal client. Conflicts surfaced to the session. Nothing else.
+**Scope:** 2 humans → **2 separate sessions**, each with **1 background agent**, all editing **1 live
+shared project** (CRDT), with presence and semantic-conflict surfacing. Frontend + Backend roles.
+Nothing else.
 
 | Week | Deliverable |
 |---|---|
-| **1 — Spine** | FastAPI server; session create/join over WebSocket; Agent Gateway wrapping the Anthropic Python SDK with briefing injection + `write_file` interception; Redis lock service (SETNX + TTL). |
-| **2 — CRE** | per-file vector clocks; 3-way merge via `git merge-file`; auto-merge disjoint; **conflict card surfaced to both terminals** with side-by-side diff + one-key choose. |
-| **3 — Context** | file-summary generation after writes; briefing injection; MCP tools `publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`. |
-| **4 — Git + measure** | per-role branches, auto-commit with session metadata; session export (what was built, by whom, elapsed); **the experiment** (below). |
+| **1 — Live core** | FastAPI server; project create; **two separate sessions** join; **`pycrdt` live-sync** of a shared file tree across both sessions; presence (who's editing what). |
+| **2 — Agents in the loop** | Agent Gateway per session wrapping the Anthropic SDK; **agent edits applied as CRDT updates** (stream live to the other session); project-briefing injection. |
+| **3 — Conflicts** | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both humans; choose keep-A / keep-B / merged. |
+| **4 — Context + measure** | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed snapshots to git; session export; **run the experiment** (below). |
 
-**Excluded from MVP:** DevOps/Reviewer roles, custom roles, ADR system, CI integration, web dashboard
-(terminal only), billing, AST diffing.
+**Client:** a Python **Textual** TUI showing your agent chat + a live view of the shared project +
+presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a "real Google Docs feel"
+Monaco/Yjs **web** editor is a thin Phase-2 client over the *same Python backend* — the team stays in
+Python for everything that matters.)
 
-**Client:** a Python **TUI** built with **Textual** (or Rich) — keeps the entire stack in Python, fits
-the white paper's "shared transcript + file-level locking and nothing else," and avoids a JS frontend.
+**Excluded from MVP:** DevOps/Reviewer roles, custom roles, web editor, billing, AST-level merge of
+incompatible units (MVP surfaces them, doesn't auto-merge).
 
-### 10.1 The experiment (this is the actual deliverable of the MVP)
+### 10.1 The experiment (the real deliverable)
 
-Run the *same* small feature (a CRUD resource with a UI) two ways:
-- **Arm 1:** two engineers in one Backyard session.
-- **Arm 2:** the same two engineers on separate agent sessions, merging via PRs.
-
-Measure **wall-clock to working feature**, **idle-waiting time**, and **defects at first integration**.
+Build the same small feature (a CRUD resource + UI) two ways: **Arm 1** — two people in two sessions on
+one live Backyard project; **Arm 2** — the same two on separate agent sessions merging via PRs. Measure
+**wall-clock to working feature**, **idle-waiting time**, **defects at first integration**.
 
 | Outcome | Reading |
 |---|---|
-| Backyard meaningfully faster, less idle | thesis supported — proceed to Phase 2 |
-| No difference | inconclusive — investigate where overhead landed |
-| Backyard slower / more friction | **thesis disconfirmed cheaply** — stop, write it up honestly |
-
-A negative result is a *successful* MVP: it cost four weeks instead of a company.
+| Backyard faster, less idle | thesis supported → Phase 2 |
+| No difference | inconclusive → find where overhead landed |
+| Backyard slower / more friction | thesis disconfirmed **cheaply** → stop, document honestly |
 
 ---
 
@@ -420,136 +376,135 @@ A negative result is a *successful* MVP: it cost four weeks instead of a company
 
 | Concern | Choice | Why |
 |---|---|---|
-| Server | **FastAPI + uvicorn** | first-class async, native WebSocket, Pydantic-validated event schemas |
-| Concurrency | **asyncio** | one event loop naturally serializes lock ops |
-| Real-time | FastAPI **WebSocket** + **`redis.asyncio`** pub/sub | fan-out to all participants |
-| Hot state / locks | **Redis 7** (SETNX, TTL, keyspace events) | sub-ms locks; crash-safe via TTL |
-| Durable store | **Postgres 16** + **SQLAlchemy 2 (async)** + **Alembic** | contracts, ADRs, audit; relational fits |
-| AI | **`anthropic`** Python SDK, **`claude-sonnet-4-6`** (option to raise a role to `claude-opus-4-8`) | streaming + native tool use |
-| Inter-agent | **`mcp`** (official Python MCP SDK) | Claude-native; future CLI can join |
-| 3-way merge | **`git merge-file`** (MVP) → **`merge3`** | proven; matches git semantics |
-| AST diff (Ph2) | stdlib **`ast`** + **`tree-sitter`** | semantic conflict detection |
-| Git ops | **`GitPython`** (or `subprocess` git) | per-role branches, tagged commits |
-| Path safety | **`pathspec`** / `os.path.realpath` checks | block traversal at the Gateway |
-| Client TUI | **Textual** (+ **Rich**) | full app in Python, live shared transcript |
-| Tests | **pytest** + **pytest-asyncio** + **fakeredis** | CRE and lock correctness first |
+| Server | **FastAPI + uvicorn** | async, native WebSocket, Pydantic-validated schemas |
+| **Live sync (the Google Docs core)** | **`pycrdt`** (Yjs/Yrs bindings) + **`pycrdt-websocket`** | CRDT convergence, no lost edits; **Yjs-wire-compatible** so a future web editor reuses this exact backend |
+| Concurrency | **asyncio** | one loop; natural ordering of updates |
+| Presence / pub-sub | FastAPI **WebSocket** + **`redis.asyncio`** | live cursors + fan-out to all sessions |
+| Durable store | **Postgres 16** + **SQLAlchemy 2 (async)** + **Alembic** | contracts, ADRs, summaries, audit |
+| AI | **`anthropic`** SDK, **`claude-sonnet-4-6`** (raise a session to `claude-opus-4-8` as needed) | streaming + native tool use for background agents |
+| Inter-agent | **`mcp`** (official Python SDK) | Claude-native; future CLI can join a project |
+| Semantic check | stdlib **`ast`** (Python) + **`tree-sitter`** (multi-language) | parse-validate converged regions; map ranges→units |
+| Snapshots | **`GitPython`** | attributed checkpoints of live state |
+| Path safety | **`pathspec`** / `os.path.realpath` | block traversal at the Gateway |
+| Client (MVP) | **Textual** (+ **Rich**) | full Python TUI: chat + live project view + presence |
+| Tests | **pytest** + **pytest-asyncio** + **fakeredis** | CRDT-edit and watcher correctness first |
 | Dev infra | **docker-compose** (redis + postgres) | one-command local stack |
-| Packaging | **uv** / **pyproject.toml**, **ruff** + **mypy** | fast installs, typed, linted |
 
-**On Python vs. TypeScript:** for *this* product, the honest answer is **either works, and Python is
-the right call here** — every piece we need exists first-class in Python (FastAPI WebSockets,
-`redis.asyncio`, the `anthropic` and `mcp` SDKs, Textual for the client). TypeScript's only real edge is
-that Claude Code's own client internals are JS, which would matter if we wanted the stock CLI to join on
-day one — but that's a Phase-2 nicety, not an MVP need.
+**Python vs. TypeScript:** Python is the right call — and the one thing that used to argue for JS
+(Google-Docs-style CRDT lives in the JS world) is neutralized by **`pycrdt`**, which is the Rust/Yjs
+CRDT with Python bindings and the *same wire protocol* as JS clients. We get the Google Docs core in
+Python today, and any web editor we add later just talks Yjs to this same server.
 
 ---
 
-## 12. Proposed Repository Layout (for the eventual build)
+## 12. Proposed Repository Layout
 
 ```
 backyard/
-├── docs/
-│   ├── technical-report.md          # this document
-│   ├── architecture.md              # §3–§9 reference
-│   └── roadmap.md                   # §13
+├── docs/{technical-report,architecture,roadmap}.md
 ├── src/backyard/
 │   ├── server/
-│   │   ├── app.py                   # FastAPI entry, WS routes
-│   │   ├── orchestrator.py          # ① session state machine
-│   │   ├── gateway.py               # ② Agent Gateway (Anthropic + interception)
-│   │   ├── cre/                     # ③ conflict resolver
-│   │   │   ├── engine.py
-│   │   │   ├── vector_clock.py
-│   │   │   ├── merge.py             # git merge-file / merge3
-│   │   │   └── locks.py             # Redis SETNX + TTL
-│   │   ├── context/                 # ④ shared context store
-│   │   ├── mcp_hub/                 # ⑤ MCP tools
-│   │   ├── workspace.py             # ⑥ git + fs isolation
-│   │   └── bus.py                   # ⑦ event bus + audit
+│   │   ├── app.py                 # FastAPI entry, WS routes
+│   │   ├── project_registry.py    # ① projects ⇄ sessions
+│   │   ├── sync/                  # ② Live Sync Engine
+│   │   │   ├── crdt_doc.py        #   pycrdt document per project
+│   │   │   └── ws_sync.py         #   pycrdt-websocket protocol
+│   │   ├── session.py             # ③ per-human session workspace
+│   │   ├── gateway.py             # ④ Agent Gateway (Anthropic → CRDT edits)
+│   │   ├── watcher/               # ⑤ Semantic Conflict Watcher
+│   │   │   ├── parse_check.py     #   ast / tree-sitter validation
+│   │   │   ├── unit_map.py        #   CRDT range → function/class map
+│   │   │   └── resolution.py      #   shared resolution cards
+│   │   ├── context/               # ⑥ shared context store (per project)
+│   │   ├── mcp_hub/               # ⑦ MCP tools
+│   │   ├── presence.py            # ⑧ cursors + event bus (Redis)
+│   │   └── snapshot.py            # ⑨ attributed git checkpoints
 │   ├── roles/definitions.py
-│   ├── protocol/                    # Pydantic event/message models
-│   └── client/                      # Textual TUI
-├── tests/                           # pytest (cre first)
+│   ├── protocol/                  # Pydantic event/message models
+│   └── client/                    # Textual TUI
+├── tests/                         # pytest (sync + watcher first)
 ├── infra/docker-compose.yml
 ├── pyproject.toml
 └── README.md
 ```
 
-**Build order (when implementing):** `protocol` models → `cre` (in isolation, fully tested) →
-`gateway` → `orchestrator` → `mcp_hub` → `client`. The CRE is first because it is the riskiest
-correctness surface (Fatal Risk II).
+**Build order:** `protocol` → `sync` (CRDT live-edit, tested in isolation) → `gateway` (agent edits as
+CRDT updates) → `watcher` (semantic conflicts) → `mcp_hub` → `client`. The sync engine and watcher are
+the riskiest surfaces (Fatal Risks II & IV) and come first.
 
 ---
 
 ## 13. Roadmap
 
-- **Phase 1 — MVP (4 wks):** §10. *Does collaboration beat PRs?*
-- **Phase 2 — Platform (3 mo):** DevOps + Reviewer roles, cross-domain proposal flow, ADRs, AST-aware
-  conflict detection, session reconnect, RBAC + invite-per-role, a thin web dashboard, CI webhook into
-  the session, load test to ~10 concurrent sessions, closed beta with ~20 teams.
-- **Phase 3 — Product (6 mo):** session isolation on Kubernetes, SSO/SAML, audit/retention for SOC 2,
-  private-cloud deploy, role-template marketplace, async mode (agent works while a human is away, briefs
-  them on return), issue-tracker → session workflow, GA + pricing.
+- **Phase 1 — MVP (4 wks):** §10. *Do two people + two background agents on one live project beat PRs?*
+- **Phase 2 — Platform (3 mo):** DevOps + Reviewer roles; cross-domain proposals; ADRs; **Monaco/Yjs web
+  editor** (the true Google-Docs feel, thin client over the same Python backend); AST-level merge
+  suggestions for incompatible units; session reconnect; RBAC + invite links; CI webhook into the live
+  project; load test to ~10 concurrent sessions; closed beta (~20 teams).
+- **Phase 3 — Product (6 mo):** Kubernetes session isolation; SSO/SAML; audit/retention (SOC 2 prep);
+  private-cloud deploy; role-template marketplace; async mode (your agent works while you're away,
+  briefs you on return); issue-tracker → project workflow; GA + pricing.
 
 ---
 
 ## 14. The Five Fatal Risks → Mitigations
 
-| # | Risk (white paper) | Mitigation in this design |
+| # | Risk | Mitigation |
 |---|---|---|
-| **I** | Coordination overhead *rises* | §8 briefing + §9 `signal_ready`/`wait_for_signal` delete the stand-up; **§10.1 measures it directly** and kills the project if it doesn't drop. |
-| **II** | Concurrent-edit merge loses work | §5 CRE: vector clocks + 3-way merge, **auto-merge only the disjoint case**, everything else escalates; CRE is a pure module **tested exhaustively before any real session**. |
-| **III** | Multi-principal trust unsafe | §6: agents **stop and surface** under conflicting principals — never guess; a hard System floor (§6.1) that no human or vote can cross. |
-| **IV** | Conflict resolution slow/confusing | §4.2 + §6.2: one card, side-by-side, decided by humans **who are already in the room** — the product's core advantage *is* the resolution UX. |
+| **I** | Coordination overhead *rises* | always-merged live project + presence + `signal_ready`/`wait_for_signal` remove the merge step and the stand-up; **§10.1 measures it** and kills the project if overhead doesn't fall. |
+| **II** | Concurrent edits lose work | **CRDT guarantees convergence and lost-edit-freedom** at the text layer; the sync engine is tested exhaustively before any real project. |
+| **III** | Multi-principal trust unsafe | agents **stop and surface** under conflict; hard System floor no human/vote can cross. |
+| **IV** | Conflict resolution slow/confusing | most collisions auto-converge (CRDT) and never bother anyone; only *semantic* conflicts surface — to the involved humans, in a shared card, with a surgical region freeze. |
 | **V** | No revenue path | §15. |
 
 ---
 
 ## 15. Revenue Model
 
-Charge for the **coordination layer**, pass model tokens through at cost (shown transparently
-per-session). A 1-hour, 4-agent session ≈ 80k tokens ≈ cents — the value sold is orchestration,
-conflict resolution, shared context, audit, not the API call.
+Charge for the **collaboration layer**; pass model tokens through at cost (shown per session). The value
+sold is the live shared project, the CRDT sync, conflict resolution, shared context, presence, and
+audit — not the API call.
 
-- **Free:** 1 active session, 2 humans, built-in roles, terminal client.
-- **Team — ~$49/seat/mo:** unlimited sessions, all roles, history, CI hooks, web dashboard.
+- **Free:** 1 live project, 2 sessions, built-in roles, terminal client.
+- **Team — ~$49/seat/mo:** unlimited projects + sessions, all roles, history, CI hooks, **web editor**.
 - **Enterprise — ~$149/seat/mo:** custom roles, SSO, audit/retention, private-cloud, SLA.
 
-The local-first/self-host build is the free on-ramp; **hosted coordination + collaboration features are
-the paid boundary** — which is exactly why the boundary must be drawn before the first line of code
-(Fatal Risk V), and it is.
+Local-first/self-host is the free on-ramp; **hosted collaboration is the paid boundary** — drawn before
+the first line of code (Fatal Risk V).
 
 ---
 
-## 16. Open Questions (to settle before/early in the build)
+## 16. Open Questions
 
-1. **Workspace topology:** one shared workspace on the server, or each human's local checkout kept in
-   sync? (MVP leans shared-server for simplicity; local-first is the Phase-3 trust story.)
-2. **Decision bindingness:** does a §6 decision bind only the current action, or persist as an ADR that
-   constrains future turns? (Proposed: human chooses "just this" vs. "record as ADR" on the card.)
-3. **Reviewer-as-driver:** can the Reviewer ever write directly in an emergency, or always via proposal?
-4. **Token attribution granularity:** per-human is clear; do we also attribute *shared* calls
-   (briefing compression, file summaries) — split evenly, or to the session?
+1. **Live-edit granularity:** keystroke-level CRDT for *everyone* (humans + agents), or agents land
+   edits as atomic patches while humans type live? (Recommended: CRDT for both; agents emit edits as
+   CRDT updates so they stream like a fast collaborator.)
+2. **Session privacy:** confirm humans see each other's *code edits + presence* but **not** each other's
+   agent chat. (Recommended: yes — that's the Google Docs analog.)
+3. **Snapshot cadence:** time-based, on milestones, on every settle, or human-triggered "commit point"?
+4. **Resolution scope:** does a §5 decision bind just the region now, or persist as an ADR constraining
+   future edits? (Recommended: human picks "just this" vs. "record as ADR" on the card.)
 
 ---
 
 ## 17. Conclusion
 
-The white paper named an empty quadrant and argued, convincingly, that incumbents are structurally
-unlikely to fill it. This report turns that argument into a buildable system: a Python, session-first
-architecture where many humans keep their own agents, coordinate through a structured substrate instead
-of pull requests, and **settle their disagreements together, in the open, in one shared session** — the
-exact behavior the product exists to enable.
+The product is stated in one line: **Google Docs for AI-assisted coding** — many humans, each logging
+into their own session with their own background agent, all editing one live shared project, with
+conflicts surfaced to the people involved to settle between themselves. The architecture above makes
+that buildable in Python today: a CRDT live-sync core (`pycrdt`) for the always-merged Google Docs
+guarantee, a semantic watcher for the one thing code needs that prose doesn't, and a per-session agent
+at every seat.
 
-The next move is not to build all of it. It is to build §10 — two humans, two agents, one repo, four
-weeks — and let the experiment in §10.1 tell us whether the quadrant is empty because it's hard, or
-empty because no one with the right incentives has tried.
+The next move is §10 — two humans, two sessions, two background agents, one live project, four weeks —
+and the experiment in §10.1 to learn whether the empty quadrant is empty because it's hard, or because
+no one with the right incentives has tried.
 
 ---
 
 ## References
 
 - M. Reddy, *The Unbuilt Product*, white paper, June 2026.
-- VILA-Lab, *Dive-into-Claude-Code* — architecture analysis.
-- Anthropic, *Claude Code Agent Teams* — multi-agent coordination capability (2026).
+- Yjs / Yrs — CRDT framework for real-time collaboration; `pycrdt` Python bindings.
 - Model Context Protocol — specification and Python SDK (`mcp`).
+- Anthropic, *Claude Code Agent Teams* — multi-agent coordination (2026).

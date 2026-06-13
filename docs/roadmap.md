@@ -1,23 +1,29 @@
 # Backyard — Roadmap
 
-Full detail in [`technical-report.md`](./technical-report.md) (§10, §13, §14).
+**Google Docs for AI-assisted coding.** Many humans, each with their own session + background agent, all
+editing one live shared project. Full detail in [`technical-report.md`](./technical-report.md).
 
 ---
 
-## Phase 1 — MVP (4 weeks): *Does collaboration beat PRs?*
+## Phase 1 — MVP (4 weeks): *Does it beat PRs?*
 
-**Scope:** 2 humans, 2 agents, 1 repo, Frontend + Backend roles, file-level locking, shared terminal
-transcript, conflicts surfaced to the session. Nothing else.
+**Scope:** 2 humans → **2 separate sessions**, each with **1 background agent**, all editing **1 live
+shared project** (CRDT) with presence and semantic-conflict surfacing. Frontend + Backend. Nothing else.
 
 | Week | Deliverable |
 |---|---|
-| 1 — Spine | FastAPI server; session create/join over WebSocket; Agent Gateway (Anthropic SDK + briefing + `write_file` interception); Redis lock service (SETNX + TTL). |
-| 2 — CRE | per-file vector clocks; 3-way merge via `git merge-file`; auto-merge disjoint; **conflict card to both terminals** + one-key choose. |
-| 3 — Context | file-summary generation; briefing injection; MCP tools `publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`. |
-| 4 — Git + measure | per-role branches; auto-commit with session metadata; session export; **run the experiment**. |
+| 1 — Live core | FastAPI server; project create; two separate sessions join; **`pycrdt` live-sync** of a shared file tree across both; presence (who's editing what). |
+| 2 — Agents in the loop | Agent Gateway per session (Anthropic SDK); **agent edits applied as CRDT updates**, streaming live to the other session; project-briefing injection. |
+| 3 — Conflicts | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both humans; keep-A / keep-B / merged. |
+| 4 — Context + measure | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed git snapshots; session export; **run the experiment**. |
 
-**The experiment:** build the same CRUD-plus-UI feature (a) in one Backyard session vs. (b) two
-separate sessions merging via PRs. Measure wall-clock, idle time, defects at first integration.
+**Client:** Python **Textual** TUI — your agent chat + a live view of the shared project + presence +
+resolution cards. (The `pycrdt` backend is Yjs-wire-compatible, so the Phase-2 web editor is a thin
+client over this same Python server.)
+
+**The experiment:** build the same CRUD-plus-UI feature (a) two people in two sessions on one live
+Backyard project vs. (b) two people on separate sessions merging via PRs. Measure wall-clock, idle time,
+defects at first integration.
 
 | Outcome | Reading |
 |---|---|
@@ -25,28 +31,29 @@ separate sessions merging via PRs. Measure wall-clock, idle time, defects at fir
 | No difference | inconclusive → find where the overhead landed |
 | Backyard slower | thesis disconfirmed cheaply → stop, document honestly |
 
-A negative result is a **successful** MVP — it cost four weeks, not a company.
+A negative result is a **successful** MVP — four weeks, not a company.
 
 ---
 
-## Phase 2 — Platform (3 months): *Is it reliable?*
+## Phase 2 — Platform (3 months): *Is it reliable — and does it feel like Google Docs?*
 
+- **Monaco/Yjs web editor** — the true Google-Docs feel (live cursors, inline edits), a thin client over
+  the same Python backend.
 - DevOps + Reviewer roles; cross-domain proposal flow; ADR system.
-- AST-aware conflict detection (`ast` + `tree-sitter`).
-- Session reconnect without losing agent context.
-- RBAC + invite-per-role; thin web dashboard.
-- CI webhook → session notification on failing tests.
+- AST-level **merge suggestions** for incompatible units (not just surface-and-pick).
+- Session reconnect without losing agent context; RBAC + invite links.
+- CI webhook → notification into the live project on failing tests.
 - Load test to ~10 concurrent sessions; closed beta with ~20 teams.
 
 ---
 
 ## Phase 3 — Product (6 months): *Is it a business?*
 
-- Session isolation on Kubernetes; SSO/SAML; audit + retention (SOC 2 prep).
+- Kubernetes session isolation; SSO/SAML; audit + retention (SOC 2 prep).
 - Private-cloud deployment option.
 - Role-template marketplace; custom MCP tool plugins.
-- Async mode: agent works while a human is away, briefs them on return.
-- Issue-tracker (Linear/Jira) → session workflow.
+- Async mode: your agent works while you're away, briefs you on return.
+- Issue-tracker (Linear/Jira) → live-project workflow.
 - GA launch with public pricing.
 
 ---
@@ -55,8 +62,8 @@ A negative result is a **successful** MVP — it cost four weeks, not a company.
 
 | # | Risk | Gate |
 |---|---|---|
-| I | Coordination overhead rises | Phase-1 experiment must show it *falls*. |
-| II | Concurrent-edit merge loses work | CRE exhaustively tested before any real session. |
+| I | Coordination overhead rises | Phase-1 experiment must show it *falls* (no merge step, live presence). |
+| II | Concurrent edits lose work | **CRDT guarantees convergence + no lost edits**; sync engine tested exhaustively first. |
 | III | Multi-principal trust unsafe | Agents *stop and surface*; hard System floor holds. |
-| IV | Conflict resolution slow/confusing | One card, side-by-side, decided by humans already present. |
-| V | No revenue path | Paid boundary (hosted coordination) defined before code — it is. |
+| IV | Conflict resolution slow/confusing | Text auto-converges; only *semantic* conflicts surface — to involved humans, surgical region freeze. |
+| V | No revenue path | Paid boundary (hosted collaboration + web editor) defined before code. |
