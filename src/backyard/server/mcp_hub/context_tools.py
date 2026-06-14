@@ -74,7 +74,7 @@ TOOLS: list[Tool] = [
 
 
 async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: AuthContext) -> str:
-    project_id = auth.role  # TODO: pass real project_id through auth; using role as placeholder
+    project_id = auth.project_id
 
     if name == "query_shared_context":
         results = await store.search_context(

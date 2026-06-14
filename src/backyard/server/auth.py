@@ -8,12 +8,21 @@ from backyard.server.config import settings
 
 
 class AuthContext:
-    def __init__(self, engineer_id: str, engineer_name: str, org_id: str, role: str, session_id: str):
+    def __init__(
+        self,
+        engineer_id: str,
+        engineer_name: str,
+        org_id: str,
+        role: str,
+        session_id: str,
+        project_id: str = "unset",
+    ):
         self.engineer_id = engineer_id
         self.engineer_name = engineer_name
         self.org_id = org_id
         self.role = role
         self.session_id = session_id
+        self.project_id = project_id
 
 
 def _extract_token(request: Request) -> str:

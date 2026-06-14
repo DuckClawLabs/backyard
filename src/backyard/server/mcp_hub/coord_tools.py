@@ -13,9 +13,24 @@ from backyard.server.auth import AuthContext
 from backyard.server.conflicts.surface import create_resolution_card
 from backyard.server.redis_client import get_redis
 
-TOOL_NAMES = {"raise_resolution", "propose_cross_domain_edit", "request_clarification"}
+TOOL_NAMES = {"raise_resolution", "propose_cross_domain_edit", "request_clarification", "set_active_project"}
 
 TOOLS: list[Tool] = [
+    Tool(
+        name="set_active_project",
+        description=(
+            "Set the active Backyard project for this session. "
+            "Only needed if Backyard couldn't auto-detect your project from the git remote. "
+            "Call this once at the start of a session if you see 'project: unset' in the briefing."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "The project ID from the Backyard dashboard"},
+            },
+            "required": ["project_id"],
+        },
+    ),
     Tool(
         name="raise_resolution",
         description=(
@@ -71,8 +86,13 @@ TOOLS: list[Tool] = [
 
 
 async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: AuthContext) -> str:
-    project_id = auth.role  # TODO: real project_id
+    project_id = auth.project_id
     redis = get_redis()
+
+    if name == "set_active_project":
+        from backyard.server.project_registry import set_active_project as _set
+        await _set(auth.session_id, args["project_id"])
+        return f"Active project set to '{args['project_id']}'. Your next tool call will use this project."
 
     if name == "raise_resolution":
         card = await create_resolution_card(

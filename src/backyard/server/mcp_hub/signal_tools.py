@@ -50,7 +50,7 @@ TOOLS: list[Tool] = [
 
 
 async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: AuthContext) -> str:
-    project_id = auth.role  # TODO: real project_id
+    project_id = auth.project_id
 
     if name == "signal_ready":
         topic = args["topic"]

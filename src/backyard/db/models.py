@@ -74,6 +74,7 @@ class Project(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
     org_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("orgs.id"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    git_remote: Mapped[str | None] = mapped_column(Text, unique=True)   # e.g. "github.com/acme/payments"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     org: Mapped[Org] = relationship("Org", back_populates="projects")

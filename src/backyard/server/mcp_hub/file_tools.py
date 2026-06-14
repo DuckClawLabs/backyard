@@ -65,7 +65,7 @@ def _safe_path(path: str) -> Path:
 
 
 async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: AuthContext) -> str:
-    project_id = auth.role  # TODO: real project_id
+    project_id = auth.project_id
 
     if name == "read_file":
         path = args["path"]

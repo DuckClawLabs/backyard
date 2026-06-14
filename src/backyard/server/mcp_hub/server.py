@@ -20,7 +20,14 @@ from backyard.server.mcp_hub import context_tools, signal_tools, coord_tools, fi
 from backyard.server import audit
 
 
-def build_mcp_server(auth: AuthContext, db_factory: Callable[[], AsyncSession]) -> Server:
+def build_mcp_server(
+    auth: AuthContext,
+    project_id: str,
+    role: str,
+    db_factory: Callable[[], AsyncSession],
+) -> Server:
+    auth.project_id = project_id
+    auth.role = role
     """
     Build and return a configured MCP Server for this engineer's session.
     Tool calls are intercepted here for:
