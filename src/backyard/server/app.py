@@ -6,6 +6,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -91,6 +92,7 @@ async def mcp_sse(request: Request):
     auth.engineer_name = profile.engineer.name
     auth.engineer_id = _email_to_id(profile.engineer.email)
     auth_role = profile.engineer.role
+    auth.git_branch = _read_git_branch(workspace_root)
 
     # If the profile defines custom owns, store them for role enforcement
     if profile.engineer.owns:
@@ -101,24 +103,35 @@ async def mcp_sse(request: Request):
             ex=86400,
         )
 
-    # Register session in Redis
+    # Register session in Redis — keyed by session_id so multiple sessions
+    # from the same engineer (e.g. different branches) coexist independently.
     redis = get_redis()
     await redis.hset(
         f"sessions:{project_id}",
-        auth.engineer_id,
+        auth.session_id,
         json.dumps({
             "name": auth.engineer_name,
+            "engineer_id": auth.engineer_id,
             "role": auth_role,
+            "git_branch": auth.git_branch,
             "session_id": auth.session_id,
             "connected_since": datetime.now(timezone.utc).isoformat(),
         }),
     )
     await redis.publish(
         f"events:{project_id}",
-        json.dumps({"type": "engineer_connected", "engineer_name": auth.engineer_name, "role": auth_role}),
+        json.dumps({
+            "type": "engineer_connected",
+            "engineer_name": auth.engineer_name,
+            "role": auth_role,
+            "git_branch": auth.git_branch,
+        }),
     )
 
-    logger.info("Engineer %s (%s) connected to project %s", auth.engineer_name, auth_role, project_id)
+    logger.info(
+        "Engineer %s (%s, branch: %s) connected to project %s",
+        auth.engineer_name, auth_role, auth.git_branch, project_id,
+    )
 
     try:
         mcp_server = build_mcp_server(
@@ -131,12 +144,12 @@ async def mcp_sse(request: Request):
         async with transport.connect_sse(request.scope, request.receive, request._send) as streams:
             await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
     finally:
-        await redis.hdel(f"sessions:{project_id}", auth.engineer_id)
+        await redis.hdel(f"sessions:{project_id}", auth.session_id)
         await redis.publish(
             f"events:{project_id}",
-            json.dumps({"type": "engineer_disconnected", "engineer_name": auth.engineer_name}),
+            json.dumps({"type": "engineer_disconnected", "engineer_name": auth.engineer_name, "git_branch": auth.git_branch}),
         )
-        logger.info("Engineer %s disconnected from project %s", auth.engineer_name, project_id)
+        logger.info("Engineer %s (branch: %s) disconnected from project %s", auth.engineer_name, auth.git_branch, project_id)
 
 
 @app.post("/mcp/messages")
@@ -257,6 +270,17 @@ def _email_to_id(email: str) -> str:
     """Derive a stable engineer ID from their email address."""
     import hashlib, uuid
     return str(uuid.UUID(hashlib.md5(email.lower().encode()).hexdigest()))
+
+
+def _read_git_branch(workspace_root: str) -> str:
+    """Read the current git branch from the workspace's .git/HEAD file."""
+    try:
+        head = (Path(workspace_root) / ".git" / "HEAD").read_text().strip()
+        if head.startswith("ref: refs/heads/"):
+            return head[len("ref: refs/heads/"):]
+        return "detached"   # detached HEAD state
+    except Exception:
+        return "unknown"    # not a git repo or .git/HEAD unreadable
 
 
 def main() -> None:

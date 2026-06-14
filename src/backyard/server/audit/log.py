@@ -24,6 +24,7 @@ async def append(
     result_summary: str = "",
     latency_ms: int = 0,
     turn_id: str = "",
+    git_branch: str = "",
 ) -> None:
     now = datetime.now(timezone.utc)
     checksum = AuditLogModel.compute_checksum(
@@ -34,6 +35,7 @@ async def append(
         engineer_id=engineer_id,
         role=role,
         session_id=session_id,
+        git_branch=git_branch,
         turn_id=turn_id,
         timestamp=now,
         tool_name=tool_name,

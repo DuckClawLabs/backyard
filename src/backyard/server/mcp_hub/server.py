@@ -73,10 +73,11 @@ def build_mcp_server(
             latency = int((time.monotonic() - start) * 1000)
             await audit.log.append(
                 db=db,
-                project_id=auth.role,  # placeholder; real project_id injected by route
+                project_id=auth.project_id,
                 engineer_id=auth.engineer_id,
                 role=auth.role,
                 session_id=auth.session_id,
+                git_branch=auth.git_branch,
                 tool_name=name,
                 arguments=arguments,
                 result_summary=result_text[:200],

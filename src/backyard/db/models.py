@@ -203,6 +203,7 @@ class AuditLogModel(Base):
     engineer_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
     role: Mapped[str] = mapped_column(String(64), nullable=False)
     session_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
     turn_id: Mapped[str] = mapped_column(Text, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     tool_name: Mapped[str] = mapped_column(Text, nullable=False)

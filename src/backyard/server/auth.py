@@ -23,6 +23,7 @@ class AuthContext:
         org_id: str = "default",
         role: str = "",
         project_id: str = "",
+        git_branch: str = "",
     ):
         self.engineer_id = engineer_id
         self.engineer_name = engineer_name
@@ -30,6 +31,7 @@ class AuthContext:
         self.role = role
         self.session_id = session_id
         self.project_id = project_id
+        self.git_branch = git_branch
 
 
 async def authenticate(request: Request) -> AuthContext:
