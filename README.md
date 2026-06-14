@@ -131,6 +131,54 @@ Full design: [Technical Report](docs/technical-report.md) · [Architecture](docs
 
 ---
 
+## MCP tools your agents get
+
+These are the tools Claude Code agents on your team can call. Each one is a coordination primitive that replaces a human action.
+
+### Context tools
+
+| Tool | What it does | Why it matters |
+|---|---|---|
+| `publish_context` | Publish a contract, ADR, or file summary to the shared store | Agent B publishes the API shape so Agent A builds against the real thing, not a guess |
+| `query_shared_context` | Search contracts, ADRs, and file summaries by type, role, or path | Agent A asks "what contracts does the backend role have?" before building, not after breaking |
+| `get_file_summary` | Get the auto-generated 2–3 sentence summary of any file a teammate wrote | Agent A understands what `api/users.py` exports without reading the whole file |
+| `get_project_status` | Get who is currently connected, recent activity, and open conflict cards | Any agent can check the state of the team at any point in a session |
+
+### Signal tools
+
+| Tool | What it does | Why it matters |
+|---|---|---|
+| `signal_ready` | Broadcast that a dependency or milestone is done | Agent B signals "auth-api is ready" — all waiting agents unblock instantly |
+| `wait_for_signal` | Block this agent turn until a named signal is published | Agent A waits for "auth-api" instead of polling, guessing, or a human relaying a Slack message. If the signal was already published, returns immediately |
+
+These two tools together replace the most common inter-engineer coordination: **"is X ready?"** The answer becomes automatic, not a meeting or a message.
+
+### Coordination tools
+
+| Tool | What it does | Why it matters |
+|---|---|---|
+| `raise_resolution` | Surface a contradictory instruction or decision conflict to all engineers | Agents stop and let humans decide, instead of guessing and shipping incompatible code |
+| `propose_cross_domain_edit` | Request approval to edit a file outside your role's domain | Agent A (Frontend) needs to update an API response — it asks instead of stepping on Backend's work silently |
+| `request_clarification` | Post a question to a specific role's engineer on the dashboard | Agent A asks the DevOps engineer something; the human answers in the dashboard; the agent receives the answer as a signal |
+
+### File tools
+
+| Tool | What it does | Why it matters |
+|---|---|---|
+| `write_file` | Write a file — same as the standard MCP tool, but intercepted | Every write triggers automatic file summary generation and a domain ownership check before it lands |
+| `read_file` | Read a file | Standard pass-through |
+| `list_files` | List files matching a glob pattern | Standard pass-through |
+
+### Review tools *(Reviewer role only)*
+
+| Tool | What it does | Why it matters |
+|---|---|---|
+| `create_review_comment` | Post a code review comment to the dashboard | Reviewer agent comments on work-in-progress before it gets to a PR |
+| `approve_change` | Approve a proposed cross-domain edit | Unblocks a queued write from another role |
+| `request_changes` | Ask for changes before an edit is applied | Reviewer blocks a bad write before it lands |
+
+---
+
 ## Who this is for
 
 **Enterprise engineering teams of 10–500+ engineers** already using Claude Code and hitting the coordination ceiling. AI has made individual engineers faster. It has done nothing for the team's coordination overhead. That gap is what Backyard closes.
