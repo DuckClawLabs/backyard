@@ -23,6 +23,12 @@
 
 ---
 
+> **Backyard is a team coordination layer that wraps Claude Code for enterprise engineering teams.**
+> Each engineer connects their existing Claude Code to one shared live project — their agent works in the background, and every change appears for the whole team in real time, no pull requests needed.
+> When two agents collide on the same code, the conflict surfaces to the engineers involved and they choose between themselves.
+
+---
+
 Enterprise engineering teams run into the same wall: every AI coding agent assumes **one developer per
 session**, but your team has dozens of engineers, multiple time zones, large codebases, compliance
 requirements, and handoffs that bleed hours every day. AI hasn't changed how teams collaborate — only
