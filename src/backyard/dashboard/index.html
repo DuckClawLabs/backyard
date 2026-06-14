@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backyard — Project Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e8e8e8; min-height: 100vh; }
+    header { padding: 1rem 2rem; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 1rem; }
+    header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; }
+    header span { font-size: 0.85rem; color: #888; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem 2rem; }
+    .card { background: #161616; border: 1px solid #222; border-radius: 8px; padding: 1.25rem; }
+    .card h2 { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 1rem; }
+    .session { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #1e1e1e; }
+    .session:last-child { border-bottom: none; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+    .session-name { font-weight: 500; font-size: 0.9rem; }
+    .session-role { font-size: 0.78rem; color: #888; background: #222; padding: 2px 8px; border-radius: 4px; }
+    .activity-item { font-size: 0.82rem; color: #aaa; padding: 0.3rem 0; border-bottom: 1px solid #1e1e1e; }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-item::before { content: "·"; margin-right: 0.5rem; color: #555; }
+    .conflict-card { background: #1a1208; border: 1px solid #7c4a03; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; }
+    .conflict-title { font-weight: 600; font-size: 0.9rem; color: #fb923c; margin-bottom: 0.5rem; }
+    .conflict-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.75rem 0; }
+    .side { background: #111; border-radius: 4px; padding: 0.5rem 0.75rem; font-size: 0.82rem; }
+    .side-label { font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+    .conflict-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    button { padding: 0.4rem 0.9rem; border-radius: 5px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: opacity 0.15s; }
+    button:hover { opacity: 0.85; }
+    .btn-a { background: #2563eb; color: #fff; }
+    .btn-b { background: #16a34a; color: #fff; }
+    .btn-adr { background: #7c3aed; color: #fff; }
+    .empty { color: #555; font-size: 0.85rem; padding: 0.5rem 0; }
+    #status-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #0a0a0a; border-top: 1px solid #222; padding: 0.4rem 2rem; font-size: 0.75rem; color: #555; display: flex; gap: 1rem; }
+    .connected { color: #22c55e; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌳 Backyard</h1>
+    <span id="project-name">Loading…</span>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Active Engineers</h2>
+        <div id="sessions"><p class="empty">No engineers connected</p></div>
+      </div>
+
+      <div class="card" style="margin-top:1.5rem">
+        <h2>Recent Activity</h2>
+        <div id="activity"><p class="empty">No recent activity</p></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Open Conflicts</h2>
+        <div id="conflicts"><p class="empty">No open conflicts</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span id="conn-status">Connecting…</span>
+    <span id="last-update"></span>
+  </div>
+
+  <script>
+    const projectId = window.location.pathname.split("/")[2];
+    const token = localStorage.getItem("backyard_token") || prompt("Enter your Backyard API key:");
+    if (token) localStorage.setItem("backyard_token", token);
+
+    document.getElementById("project-name").textContent = projectId;
+
+    async function apiFetch(path, opts = {}) {
+      return fetch(path, {
+        ...opts,
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...opts.headers },
+      });
+    }
+
+    async function loadStatus() {
+      try {
+        const res = await apiFetch(`/project/${projectId}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        renderSessions(data.active_sessions || []);
+        renderConflicts(data.open_resolutions || []);
+        document.getElementById("last-update").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderSessions(sessions) {
+      const el = document.getElementById("sessions");
+      if (!sessions.length) { el.innerHTML = '<p class="empty">No engineers connected</p>'; return; }
+      el.innerHTML = sessions.map(s => `
+        <div class="session">
+          <div class="dot"></div>
+          <span class="session-name">${s.name || s.engineer_id}</span>
+          <span class="session-role">${s.role}</span>
+        </div>`).join("");
+    }
+
+    function renderConflicts(cards) {
+      const el = document.getElementById("conflicts");
+      if (!cards.length) { el.innerHTML = '<p class="empty">No open conflicts ✓</p>'; return; }
+      el.innerHTML = cards.map(c => `
+        <div class="conflict-card">
+          <div class="conflict-title">⚠ ${c.title}</div>
+          <div class="conflict-sides">
+            <div class="side"><div class="side-label">Side A</div>${c.conflict_a}</div>
+            <div class="side"><div class="side-label">Side B</div>${c.conflict_b}</div>
+          </div>
+          <div style="font-size:0.78rem;color:#888">Affects: ${(c.affects||[]).join(", ") || "—"}</div>
+          <div class="conflict-actions">
+            <button class="btn-a" onclick="resolve('${c.id}', ${JSON.stringify(c.conflict_a)})">Choose A</button>
+            <button class="btn-b" onclick="resolve('${c.id}', ${JSON.stringify(c.conflict_b)})">Choose B</button>
+            <button class="btn-adr" onclick="resolveAdr('${c.id}', '${c.title}')">Record as ADR</button>
+          </div>
+        </div>`).join("");
+    }
+
+    async function resolve(resolutionId, decision) {
+      await apiFetch(`/project/${projectId}/resolutions/${resolutionId}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      });
+      loadStatus();
+    }
+
+    async function resolveAdr(resolutionId, title) {
+      const decision = prompt(`Decision for "${title}":`);
+      if (!decision) return;
+      await apiFetch(`/project/${projectId}/resolutions/${resolutionId}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ decision, record_as_adr: true, adr_title: title }),
+      });
+      loadStatus();
+    }
+
+    // SSE for live events
+    function connectEvents() {
+      const es = new EventSource(`/project/${projectId}/events?token=${token}`);
+      es.onopen = () => { document.getElementById("conn-status").innerHTML = '<span class="connected">● Connected</span>'; };
+      es.onmessage = (e) => { loadStatus(); };
+      es.onerror = () => {
+        document.getElementById("conn-status").textContent = "Reconnecting…";
+        setTimeout(connectEvents, 3000);
+        es.close();
+      };
+    }
+
+    loadStatus();
+    setInterval(loadStatus, 10000);
+    connectEvents();
+  </script>
+</body>
+</html>
