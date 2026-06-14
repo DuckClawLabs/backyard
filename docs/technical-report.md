@@ -1,354 +1,177 @@
-# Backyard — Multi-Human, Multi-Agent Collaborative Coding for Enterprise Engineering Teams
+# Backyard — Technical Report
 
-**Enterprise engineering teams. Each engineer with their own background AI agent. One live shared
-project. All contributing at once, in real time.**
+**Multi-Agent Coordination for Enterprise Engineering Teams**
 Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
-Version 0.4 · Status: Design · Stack: Python · Target: Enterprise
+Version 0.5 · Stack: Python · Target: Enterprise
 
 ---
 
-## 0. Executive Summary
+## Overview
 
-The white paper establishes the gap: every AI coding agent assumes **one human per session**, yet
-enterprise software is built by teams of dozens to hundreds of engineers. AI has accelerated the
-individual — it has not touched the team's coordination overhead. **Backyard** fills that gap with a
-specific shape — and a deliberate design principle:
+Backyard is a team coordination layer that wraps Claude Code for enterprise engineering teams.
+Each engineer connects their existing Claude Code to one shared project — their agent has full shared
+context of what every other agent on the team is doing, in real time.
 
-> **Backyard is a superset of Claude Code, not a replacement.** Every capability Claude Code provides
-> to a single engineer — file editing, shell commands, git operations, MCP tool use, multi-step agent
-> loops, streaming, slash commands, CLAUDE.md project context — is available in every session.
-> Backyard adds the layer Claude Code deliberately left out: **many engineers, many agents, one shared
-> live project, simultaneously.**
+This report covers two distinct problems:
 
-> Each engineer logs into the platform and gets their **own private session with their own background AI
-> agent**. All of those sessions contribute to **one live shared project at the same time.** Every
-> engineer's edits — and every agent's edits — appear live for the entire team. When two changes truly
-> conflict, the collision is surfaced to the engineers involved and they **choose between themselves.**
-> The full audit trail records who decided what and why.
+- **[Part A — Problem 1: MCP Coordination](#part-a--problem-1-mcp-coordination)** ← *building now*
+- **[Part B — Problem 2: Live Collaboration](#part-b--problem-2-live-collaboration)** ← *future vision*
 
-The model is: **one shared project that the whole engineering team contributes to at once, with an AI
-agent working alongside each engineer.** No pull requests, no merge latency, no "is the API ready?"
-stand-up. The shared state is always already merged.
-
-This report specifies the system end-to-end: the project-centric architecture, the real-time sync engine,
-how separate sessions and background agents share one project, the two-layer conflict model (automatic
-text convergence + human-resolved semantic conflicts), the trust model, roles, shared context, the
-inter-agent protocol, a 4-week enterprise pilot, the Python stack, and a phased roadmap — with every one
-of the white paper's **five fatal risks** mapped to a concrete mitigation.
+We build Problem 1 first. It is real, achievable, and has no direct competitors today.
+Problem 1 earns us the right — and the revenue — to build Problem 2.
 
 ---
 
-## 1. The Core Idea (and how it differs from "shared session")
+# Part A — Problem 1: MCP Coordination
 
-### 1.1 Project-centric, not session-centric
+## A1. The Problem
 
-The unit everyone shares is the **Project** — the live codebase.
+Every team using Claude Code today has this problem. Each agent knows only what its own engineer has
+told it. There is no shared state between agent sessions.
 
-Each engineer has their **own Session**: their private chat, their own context, and their own
-**background agent(s)** working on their behalf. Sessions are *isolated from each other* — you don't
-read a colleague's conversation. You see other engineers' *edits and cursors* in the shared project,
-not their private notes. This matches the trust model enterprise organizations need: individual
-accountability with shared visibility.
+- Agent A writes an integration for an API that Agent B hasn't shipped yet — wrong assumptions, baked in silently
+- Agent B makes a breaking change — Agent A's agent doesn't know for hours
+- Two agents make contradictory architecture decisions independently — discovered at PR review, not before
+- Agent A needs to know if the auth middleware is ready — only a Slack message can answer it, not an agent
 
-```
-                          ┌──────────── ONE LIVE PROJECT ────────────┐
-                          │           (the shared codebase)           │
-                          └───────────────────────────────────────────┘
-                              ▲            ▲            ▲           ▲
-          live edits          │            │            │           │   live edits
-        ┌─────────────────────┘     ┌──────┘      ┌─────┘     └─────────────────┐
-        │                            │             │                            │
-  ┌───────────┐               ┌───────────┐  ┌───────────┐               ┌───────────┐
-  │ Session A │               │ Session B │  │ Session C │               │ Session D │
-  │  Human A  │               │  Human B  │  │  Human C  │               │  Human D  │
-  │ + Agent A │               │ + Agent B │  │ + Agent C │               │ + Agent D │
-  │ (private) │               │ (private) │  │ (private) │               │ (private) │
-  └───────────┘               └───────────┘  └───────────┘               └───────────┘
-```
+You can put shared context in a `CLAUDE.md` file. But it is manual, asynchronous, and agents don't get
+notified when it changes. No tool solves this today.
 
-### 1.2 Four things this gets right that pull requests don't — at enterprise scale
+## A2. The Solution
 
-- **No merge step.** The shared state is *always already merged*. There is no "open a PR, wait, resolve
-  conflicts, merge" — your edits and your agent's edits land in the live project as they happen.
-- **Everyone sees everything, live.** A senior engineer watches a junior's agent work in real time and
-  can intervene immediately — not in a diff review 24 hours later. Context is never reconstructed.
-- **Cross-timezone handoffs cost nothing.** The incoming engineer's session picks up where the outgoing
-  one left off; the agent briefs them on what happened. The first hour of every handoff disappears.
-- **Full audit trail, always on.** Every agent action is logged with `(engineer, role, agent-turn,
-  timestamp)`. Compliance and incident review don't require reconstructing history from git blame.
-
-### 1.3 Full Claude Code feature parity — at every seat
-
-Each engineer's session in Backyard has the complete Claude Code feature set. Nothing is cut to make
-collaboration work. The multi-human layer is *additive*.
-
-| Claude Code capability | In every Backyard session | Extended by Backyard |
-|---|---|---|
-| File read / edit / write | ✓ | Edits stream live to all teammates |
-| Shell / bash command execution | ✓ | Output visible to all (with audit attribution) |
-| Git operations | ✓ | Plus team-level attributed snapshots per session |
-| MCP tool use (standard tools) | ✓ | Plus shared MCP Hub with team-coordination tools |
-| Multi-step autonomous agent loops | ✓ | Agent output streams to all sessions in real time |
-| Streaming responses | ✓ | Streamed to all participants, not just the operator |
-| Slash commands | ✓ | — |
-| CLAUDE.md project context | ✓ | A shared project-level CLAUDE.md visible to all agents |
-| IDE / terminal client | ✓ (terminal, Phase 2: web IDE) | Live presence and shared view alongside |
-| Permission model (approve/deny tools) | ✓ per session | Role-based capability enforcement at the org level |
-
-The principle: **an engineer in Backyard should be at least as capable as an engineer using Claude Code
-alone** — and additionally able to see, coordinate with, and build on what their teammates' agents are
-doing in real time.
-
-### 1.4 The one hard problem this creates
-
-Real-time text collaboration is well understood for *prose*, because any interleaving of prose edits is
-still valid prose. **Code is not prose:** two cleanly-merged edits can produce a file that does not
-compile or that is logically contradictory. So Backyard needs **two layers** (see §5):
-
-1. **Text convergence** — guarantees everyone's view is identical and no keystroke is ever lost.
-2. **Semantic conflict detection** — notices when the converged code is broken or two sessions changed
-   the same logical unit incompatibly, and **surfaces it to the engineers involved to choose between
-   themselves.**
-
----
-
-## 2. Design Principles
-
-1. **The project is the shared object; sessions are private.** History and presence hang off the
-   **project**; chat, context, and agent state hang off each engineer's **session**.
-2. **Always-merged, never-blocked.** Real-time convergence means there is no merge step and no file you
-   must wait for. Editing is live.
-3. **Auto-merge the text, surface the meaning.** Text-level collisions converge automatically; only
-   *semantic* conflicts interrupt an engineer — and then only the engineers actually involved.
-4. **Conflicts are resolved socially.** When a real conflict surfaces, it goes to a **shared resolution
-   view** the involved engineers both see, and they decide together. The system never silently picks a
-   winner by rank.
-5. **Agents coordinate through the project, not through each other's minds.** No agent reads another
-   session's conversation. They share the **live code** plus **structured artifacts** (contracts, ADRs,
-   file summaries). Context windows and cost stay bounded.
-6. **Build no client — ride Claude Code's.** Backyard is an MCP server. Engineers connect their
-   existing Claude Code surface (CLI, desktop, VS Code, web) to it. Every new Claude Code client
-   Anthropic ships automatically becomes a Backyard client. Zero client code owned.
-7. **Falsifiable before fancy.** Build the cheapest thing that proves two engineers + two background
-   agents on one live project beat two engineers merging via PRs.
-
----
-
-## 3. System Architecture
-
-### 3.1 The nine components
-
-```
-┌──────────────────────────── BACKYARD PROJECT SERVER ────────────────────────────┐
-│                              (Python · FastAPI · asyncio)                         │
-│                                                                                  │
-│   ② Live Sync Engine (CRDT)      ⑤ Semantic Conflict Watcher                     │
-│   ③ Session Workspace (×N)       ⑥ Shared Context Store (per project)            │
-│   ④ Agent Gateway (×N)           ⑦ MCP Hub                                       │
-│   ⑧ Presence + Event Bus         ⑨ Snapshot/Git Service                         │
-│                                                                                  │
-│   ① Project Registry  ── owns projects, attaches sessions, keys everything ──    │
-└──────────────────────────────────────────────────────────────────────────────────┘
-        │                         │                          │
-   Session A (Human+Agent)   Session B (Human+Agent)    Session C (Human+Agent)
-        └─────────────────────────┴──── all edit ───────────┘
-                                   ▼
-                         ONE LIVE PROJECT (CRDT doc)  ⇄  Redis (presence, pub/sub)
-                                                       ⇄  Postgres (history, context)
-```
-
-**① Project Registry** — owns projects; attaches/detaches sessions; everything keys off
-`project_id` (shared) and `session_id` (per human).
-
-**② Live Sync Engine (CRDT)** — *the real-time core.* Holds the shared codebase as a CRDT document.
-Every edit — from a human's keystrokes or their background agent — is a CRDT update that converges on
-every session with no lost work and no merge step. Built on **`pycrdt`** (Python bindings to Yjs/Yrs).
-
-**③ Session Workspace (one per human)** — a human's private space: their chat history, their context,
-their cursor/presence, and a live view of the shared project. Isolated from other sessions.
-
-**④ Agent Gateway (one per session)** — wraps the Anthropic API for that human's **background agent**.
-The agent's file edits are applied *as CRDT updates*, so they stream into the live project exactly like
-human edits and are attributed to that session.
-
-**⑤ Semantic Conflict Watcher** — sits above the CRDT. Detects when converged state is broken
-(won't parse/compile) or when two sessions changed the same logical unit incompatibly, and raises a
-**shared resolution card** to the involved humans. This is the code-specific layer plain text
-collaboration doesn't need.
-
-**⑥ Shared Context Store (per project)** — structured contracts, ADRs, and auto-generated file
-summaries — how agents across different sessions understand the one shared project.
-
-**⑦ MCP Hub** — exposes coordination tools to every agent as MCP tools (`publish_context`,
-`wait_for_signal`, `raise_resolution`, …). MCP so a stock Claude Code CLI can eventually join a project.
-
-**⑧ Presence + Event Bus** — live cursors, "who/which agent is editing what," and activity feed; Redis
-pub/sub fan-out to all sessions.
-
-**⑨ Snapshot / Git Service** — periodically and on milestones, checkpoints the live CRDT state into git
-with per-change attribution `(session, human, agent)`. Git is the durable history and the export, not
-the live working mechanism.
-
-### 3.2 The client model — zero client code in Phase 1
-
-Backyard's coordination server exposes itself as an **MCP server**. Engineers connect their existing
-Claude Code setup to it with a one-line config:
+An **MCP coordination server** every engineer's Claude Code connects to with one line of config —
+giving every agent on the team a **shared brain**.
 
 ```json
-// .claude/settings.json  (each engineer adds this once)
+// .claude/settings.json  (one-time setup per engineer)
 {
   "mcpServers": {
-    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
+    "backyard": { "url": "https://backyard.yourcompany.com/project/abc" }
   }
 }
 ```
 
-This works from **every Claude Code surface without modification**: CLI (`claude`), desktop app
-(Mac/Windows), VS Code extension, and web (`claude.ai/code`). Engineers keep using whatever they
-already use. Backyard gains every new Claude Code client Anthropic ships for free.
+Engineers keep using whichever Claude Code surface they already use — CLI, desktop app, VS Code
+extension, or web. Nothing changes in their workflow. Backyard is invisible infrastructure that makes
+their agents smarter about the team they're part of.
 
-The coordination server exposes two distinct layers over MCP:
-- **Standard file/tool access** (same as Claude Code's built-in tools) — so the agent can still
-  edit files, run shell commands, and use git, all routed through the workspace.
-- **Team-coordination tools** (`publish_context`, `signal_ready`, `wait_for_signal`,
-  `raise_resolution`, `get_project_status`) — the new primitives that make multi-engineer
-  collaboration work.
-
-The **only new UI built in Phase 1** is a lightweight **web dashboard** for the things that need a
-visual surface: presence (who's editing what), conflict resolution cards (side-by-side diff, choose),
-and the audit log. This is a single-page app served by the same FastAPI server.
-
-**Phase 2** adds a full web IDE (Monaco editor with live cursors, the true real-time editing view).
-
-### 3.3 Why this shape
-
-- Making the **project** the top-level object removes the white paper's load-bearing "single-principal
-  assumption": presence, history, and context key off the project; many sessions attach to it.
-- **MCP as the client protocol** means zero client maintenance, automatic support for every Claude Code
-  surface, and future-proofing as Anthropic ships new interfaces.
-- A **CRDT** (`pycrdt`, Yjs-wire-compatible) guarantees convergence without a central lock. When a
-  Phase-2 web IDE is added, it speaks the same Yjs protocol to the same server — no backend changes.
-
----
-
-## 4. Data Flow
-
-### 4.1 A human (or their background agent) edits — live, no merge
+## A3. System Architecture
 
 ```
-Human B types  (or Agent B emits a write to api/users.py)
-  → applied as a CRDT update in Session B's view
-  → Live Sync Engine merges it into the shared project (always-converged)
-  → update broadcast to Sessions A, C, D → their views change in real time
-  → Presence shows "Agent B editing api/users.py"
-  → Semantic Watcher re-checks the touched region (parse/compile/logical)
-  → Context Store refreshes api/users.py summary
-  → Snapshot Service folds it into the next checkpoint, attributed to Session B
+                    ┌──────────── BACKYARD MCP SERVER ────────────┐
+                    │          (Python · FastAPI · asyncio)        │
+                    │                                              │
+                    │  ① MCP Hub          ② Shared Context Store  │
+                    │  ③ Signal Engine    ④ Project Briefing       │
+                    │  ⑤ Audit Log        ⑥ Conflict Surface       │
+                    └──────────────────────────────────────────────┘
+                         ▲              ▲               ▲
+                         │   MCP        │               │  MCP
+                 ┌───────┴──────┐  ┌────┴───────┐  ┌───┴────────┐
+                 │  Engineer A  │  │ Engineer B │  │ Engineer C │
+                 │  Claude Code │  │ Claude Code│  │ Claude Code│
+                 │  (any surface│  │(any surface│  │(any surface│
+                 └──────────────┘  └────────────┘  └────────────┘
+
+                    Redis (pub/sub, signals, hot state)
+                    Postgres (context, audit log)
 ```
 
-No lock was taken. No PR was opened. The change is already part of the shared project.
+### Components
 
-### 4.2 A real conflict — surfaced to the humans involved
+| # | Component | Responsibility |
+|---|---|---|
+| ① | **MCP Hub** | The MCP server interface. Exposes standard file tools and all team-coordination tools to every connected agent. |
+| ② | **Shared Context Store** | Contracts, ADRs, file summaries. Structured artifacts agents publish and query. Never raw conversation history. |
+| ③ | **Signal Engine** | Redis pub/sub. `signal_ready` / `wait_for_signal` let agents coordinate without human intermediation. |
+| ④ | **Project Briefing** | Auto-injected into every agent turn (≤2k tokens): who's active, recent activity, published contracts, open decisions. |
+| ⑤ | **Audit Log** | Every agent action logged: `(engineer, role, agent-turn, timestamp, tool, result)`. Always on. Postgres. |
+| ⑥ | **Conflict Surface** | Detects contradictory agent decisions; posts a resolution card to the involved engineers via the web dashboard. |
+
+## A4. MCP Tool Catalog
+
+| Group | Tools | Purpose |
+|---|---|---|
+| **Context** | `query_shared_context` | Search contracts, ADRs, file summaries |
+| | `publish_context` | Publish a contract, ADR, or decision |
+| | `get_file_summary` | Get the auto-generated summary of any file |
+| | `get_project_status` | Active engineers, recent activity, open decisions |
+| **Signals** | `signal_ready(topic)` | Broadcast that a milestone is complete |
+| | `wait_for_signal(topic, timeout)` | Block until another agent signals; resolves with the published contract |
+| **Coordination** | `propose_cross_domain_edit` | Request permission to touch another role's domain |
+| | `raise_resolution` | Surface a conflict or contradictory instruction to the engineers |
+| | `request_clarification` | Ask another role's engineer a question via the dashboard |
+| **File tools** | `read_file`, `write_file`, `list_files` | Standard file access (pass-through; agents still write to their local filesystem in Problem 1) |
+| **Review** | `create_review_comment`, `approve_change` | Reviewer role only |
+
+## A5. Key Data Flows
+
+### A5.1 Shared contract — the stand-up that never happens
 
 ```
-Agent A and Agent B edit the SAME function in api/users.py within the same window
-  → CRDT converges the TEXT (nothing is lost) ...
-  → ... but the Semantic Watcher sees the two edits are logically incompatible
-        (e.g. both rewrote validate() with different signatures)
-  → Watcher freezes that region and opens a SHARED RESOLUTION CARD
-        visible to Human A and Human B (the two involved), showing:
-          • A's version + Agent A's stated intent
-          • B's version + Agent B's stated intent
-          • the broken/contradictory converged result
-  → A and B — already online, already in their own sessions — choose between themselves:
-          keep A / keep B / a merged third version either agent drafts on request
-  → chosen version applied to the live project; region unfrozen; everyone re-syncs
-  → decision logged with who-decided-what
+Agent A: wait_for_signal("user-api", timeout=300s)     ← no human action required
+
+Agent B implements the endpoint, then:
+  publish_context({ type: "contract", id: "user-api-v1",
+                    endpoints: [GET /api/users/:id → UserDTO] })
+  signal_ready("user-api")
+
+→ Signal Engine resolves Agent A's wait
+→ Agent A receives the typed contract
+→ Agent A builds against the real shape immediately
+→ The "is the API ready?" Slack message never gets sent
 ```
 
-This is the precise meaning of "conflicts posted to choose between themselves": only the people whose
-changes collided are pulled in, into a shared view, and they settle it together.
-
-### 4.3 Cross-session coordination (Frontend needs the Backend's API shape)
+### A5.2 Contradictory decisions — surfaced, not silently picked
 
 ```
-Agent A: wait_for_signal(topic="user-api", timeout=300s)          ← no human action
-Agent B: implements endpoint, then publish_context(contract=user-api-v1)
-                                    + signal_ready(topic="user-api")
-  → MCP Hub hands Agent A the typed contract; A builds against the real shape
-  → the "is the API ready yet?" message never has to be sent
+Engineer A tells their agent: "use Postgres"
+Engineer B tells their agent: "use SQLite"
+
+→ Both agents detect the contradiction and call raise_resolution()
+→ Conflict Surface posts a resolution card to the web dashboard:
+      "Database choice — A: Postgres, B: SQLite. Engineers: decide together."
+→ Engineers resolve in the open; decision recorded as an ADR
+→ ADR is published to the Shared Context Store
+→ Both agents' subsequent turns include the decision in their briefing
+→ No agent proceeds until the decision is made
 ```
 
----
+### A5.3 Project briefing — injected every turn
 
-## 5. The Two-Layer Conflict Model
+```
+=== PROJECT BRIEFING (auto-generated) ===
+Session: 47m active · Engineers: Frontend(A), Backend(B), Reviewer(C)
+Recent:  B published user-api-v1 (GET /api/users/:id)
+         A completed UserCard component
+Contracts available: user-api-v1
+Open decisions: none
+=== END ===
+```
 
-### 5.1 Layer 1 — Text convergence (CRDT): automatic, lossless
+Constant situational awareness. Bounded cost (≤2k tokens). Every agent knows the state of the team
+without sharing raw conversation histories.
 
-The Live Sync Engine holds the project as a **CRDT** (Conflict-free Replicated Data Type). Properties
-that matter:
+## A6. Shared Context Architecture
 
-- **Convergence:** every session's copy is guaranteed identical after updates exchange.
-- **No lost edits:** concurrent keystrokes/agent-writes interleave deterministically; nobody's work is
-  dropped.
-- **No central lock:** sessions edit freely; ordering is resolved by the CRDT, not by waiting.
+Agents in different sessions never share conversation history — that would explode context windows and
+cost. They share **structured artifacts** only:
 
-**Why CRDT over Operational Transform:** both can power real-time editing, but OT needs a central
-transform authority and is famously tricky to get right; modern collaborative editors (Yjs/Yrs) are
-CRDT-based, and `pycrdt` gives us a battle-tested Python implementation that is wire-compatible with the
-JS ecosystem.
+| Artifact | Schema | Published by | Consumed by |
+|---|---|---|---|
+| **Interface Contract** | `{id, endpoints[], types{}}` | Producing role | All other roles |
+| **Architecture Decision (ADR)** | `{title, status, affects[], summary}` | Any (after engineer approval) | All agents |
+| **File Summary** | `{path, summary, exports[], last_by}` | Auto-generated on write | Any agent querying a file |
+| **Compressed Activity** | Bullet-point summary of recent turns | Auto-generated every ~10 turns | Project briefing |
 
-### 5.2 Layer 2 — Semantic conflict detection: surfaced to humans
+Storage: **Redis** (hot: signals, briefings, pub/sub) + **Postgres** (durable: contracts, ADRs,
+summaries, audit). No vector database — all queries are structured (by role/path/contract ID), which is
+faster, cheaper, and never stale.
 
-The CRDT guarantees the text *converges*, not that it is *correct code*. The Semantic Conflict Watcher
-catches what plain text collaboration never has to:
+## A7. Role System
 
-| Detection | How |
-|---|---|
-| Won't parse / compile | run the language parser (`ast` for Python; `tree-sitter` elsewhere) on the converged region after each settle |
-| Same logical unit, incompatible edits | track which CRDT ranges map to which functions/classes; flag when two sessions wrote the same unit within a window |
-| Contradictory intents | agents declare an `intent` with each edit; opposing intents on one unit raise a flag |
-
-On a flag, the Watcher **freezes just that region** and opens a **shared resolution card** to the
-involved sessions (§4.2). Everything else in the project keeps flowing — the freeze is surgical, not a
-whole-file lock.
-
-### 5.3 Presence as soft conflict-avoidance
-
-Most conflicts never happen because **you can see where everyone is.** Presence shows live: "Agent C is
-rewriting `login()` right now." Humans and agents naturally avoid the spot. This is advisory (shown, not
-enforced), so it never blocks anyone.
-
-### 5.4 Conflicting *instructions* (not just edits)
-
-If two humans tell their agents contradictory things that affect the same artifact (A: "use Postgres";
-B: "use SQLite"), the agents **stop and surface** via `raise_resolution` rather than racing — same
-shared-card flow, same "humans choose between themselves." No rank-based auto-winner; an unresolved
-decision stays *visibly* paused, never silently guessed.
-
----
-
-## 6. Multi-Principal Trust Model
-
-> **Stance:** roles and presence set defaults and routing; **humans hold the gavel.** The system
-> auto-merges text and surfaces meaning; it never resolves a real conflict by rank.
-
-**System floor (non-negotiable, no role or vote overrides):**
-- no access outside the project workspace (path-traversal blocked at the Agent Gateway);
-- no direct push to `main`/`master` — durable history is via attributed snapshots;
-- a session cannot read another session's private chat or secrets;
-- irreversible ops (delete/overwrite of whole files) require a surfaced, explicit decision.
-
-**Above the floor:** conflicting edits or instructions → freeze the affected region / pause the action →
-**shared resolution card to the involved humans** → they resolve (talk / pick / record as ADR) →
-applied + audited. An agent's default under conflict is **stop and surface**, never **guess and
-proceed** — the concrete answer to Fatal Risk III.
-
----
-
-## 7. Role System (hints, not handcuffs)
-
-Roles route work and set sensible defaults; they never silently wall a human off from helping.
+Roles set default domains and route work. They are hints, not hard walls — helping outside your domain
+just asks first, visibly.
 
 | Role | Default domain | Asks-first to touch |
 |---|---|---|
@@ -357,279 +180,199 @@ Roles route work and set sensible defaults; they never silently wall a human off
 | **DevOps** | `infra/**`, `*.yml`, `Dockerfile`, `.github/**` | app code |
 | **Reviewer** | read-everywhere; edits via proposal | — |
 
-"Asks-first" = the agent calls `propose_cross_domain_edit`, which appears as a lightweight card to the
-owning human — collaboration stays open, just visible. Custom roles via a per-project `backyard.toml`.
-Enforcement is at each Agent Gateway, before any edit reaches the CRDT.
+Custom roles defined in `backyard.toml` per project. Enforcement at the MCP Hub before any tool
+executes.
 
----
+## A8. Trust and Conflict Model
 
-## 8. Shared Context Architecture
+**System floor (non-negotiable):** no file access outside the project workspace; no direct push to
+`main`/`master`; a session cannot read another session's private context; irreversible operations
+require a surfaced decision.
 
-Agents in **different sessions** never share conversation history (that would explode every context
-window and cost). They share the **live code** plus **structured artifacts**:
+**Above the floor:** contradictory decisions → agents stop and surface via `raise_resolution` → both
+engineers see a resolution card → they decide together → decision logged and published as an ADR.
+Agent default under conflict: **stop and surface, never guess and proceed.**
 
-- **Interface Contracts** — `{contract_id, endpoints[], types{}}`, published by the producing session.
-- **ADRs** — `{title, status, affects[], summary}`, the durable record of a §6 decision.
-- **File Summaries** — 2–3 sentences auto-generated after each settle; understand a file without reading
-  it.
-- **Compressed Activity Log** — every ~10 edits, a cheap Claude call distills recent project activity.
+## A9. Tech Stack
 
-Each agent turn gets a **project briefing** (≤ ~2k tokens): who's online, recent activity, live presence
-(who's editing what), available contracts, and any open resolution cards. Bounded cost, constant
-situational awareness — the mechanism that makes coordination overhead *fall* (Fatal Risk I). Storage:
-Redis (hot: presence, briefings, pub/sub) + Postgres (durable: contracts, ADRs, summaries, audit). No
-vector DB in MVP.
-
----
-
-## 9. Inter-Agent Protocol (MCP)
-
-Each agent's sanctioned channel to the shared project and other sessions is a set of **MCP tools**.
-
-| Group | Tools |
-|---|---|
-| Context | `query_shared_context`, `publish_context`, `get_file_summary`, `get_project_status` |
-| Coordination | `propose_cross_domain_edit`, `request_clarification`, `signal_ready`, `wait_for_signal`, **`raise_resolution`** |
-| Editing (gateway-enforced, applied as CRDT updates) | `read_file`, `apply_edit`, `list_files` |
-| Review (Reviewer) | `create_review_comment`, `approve_change`, `request_changes` |
-
-`apply_edit` writes through the CRDT so agent edits are live and attributed. `raise_resolution` is the
-§5.4 primitive. `wait_for_signal`/`signal_ready` delete the stand-up (§4.3).
-
----
-
-## 10. Enterprise Pilot — Falsify the Thesis in 4 Weeks
-
-**Scope:** 2 engineers from a real engineering team → **2 separate sessions**, each with **1 background
-agent**, all editing **1 live shared project** (CRDT), with presence, audit logging, and semantic-conflict
-surfacing. Frontend + Backend roles. Nothing else.
-
-The pilot target is **an existing enterprise engineering team**, not two individuals. Running it inside
-a company provides realistic conditions: actual codebase complexity, actual coordination overhead to
-measure against, and an actual stakeholder (an Engineering Manager or VP) who can validate whether the
-result matters.
-
-| Week | Deliverable |
-|---|---|
-| **1 — Live core** | FastAPI server; project create; **two separate sessions** join; **`pycrdt` live-sync** of a shared file tree across both sessions; presence (who's editing what); **full audit log from day one** (`engineer, role, agent-turn, timestamp` on every action). |
-| **2 — Agents in the loop** | Agent Gateway per session wrapping the Anthropic SDK; **agent edits applied as CRDT updates** (stream live to the other session); project-briefing injection; role-based capability enforcement. |
-| **3 — Conflicts** | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; choose keep-A / keep-B / merged. |
-| **4 — Context + measure** | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed snapshots to git; session export; **run the experiment** (below). |
-
-**Client — zero new client software.** Engineers add one line to `.claude/settings.json` and connect
-their existing Claude Code surface (CLI, desktop, VS Code extension, or web) to the Backyard MCP
-server. No new tool to install or learn.
-
-```json
-// .claude/settings.json  (added once per engineer)
-{
-  "mcpServers": {
-    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
-  }
-}
-```
-
-**The only new UI in Phase 1:** a lightweight web dashboard (single HTML page served by the FastAPI
-server) for the three things that need a visual surface:
-- **Presence** — who's in the project, which agent is editing what.
-- **Conflict resolution cards** — side-by-side diff, one-click choose.
-- **Audit log** — chronological feed of all agent actions with attribution.
-
-**Excluded from pilot:** DevOps/Reviewer roles, custom roles, full web IDE with live cursors (Phase 2),
-SSO (Phase 2), AST-level merge of incompatible units (pilot surfaces them, doesn't auto-merge).
-
-### 10.1 The pilot experiment (the real deliverable)
-
-Run with **two engineers from the same enterprise team** building the same well-defined feature (a
-service endpoint + the UI that consumes it):
-
-- **Arm 1:** two engineers in two Backyard sessions on one live project.
-- **Arm 2:** the same two engineers on separate agent sessions, merging via PRs (their current workflow).
-
-Measure **wall-clock to working feature**, **idle-waiting time** (blocked on the other person or a PR
-review), and **defects at first integration**.
-
-| Outcome | Reading |
-|---|---|
-| Backyard measurably faster, less idle | thesis supported; present to engineering leadership; proceed to Phase 2 |
-| No difference | inconclusive — identify where the overhead remained; iterate or stop |
-| Backyard slower / more friction | thesis disconfirmed **cheaply** — four weeks is the cost of learning this early |
-
-The Engineering Manager's subjective assessment — "would you run the next sprint this way?" — is as
-important as the time measurement. A tool that's 20% faster but creates confusion won't be adopted.
-
----
-
-## 11. Tech Stack (Python)
-
-| Concern | Choice | Why |
+| Concern | Choice | Rationale |
 |---|---|---|
-| Server | **FastAPI + uvicorn** | async, native WebSocket, Pydantic-validated schemas |
-| **Live sync (the real-time core)** | **`pycrdt`** (Yjs/Yrs bindings) + **`pycrdt-websocket`** | CRDT convergence, no lost edits; **Yjs-wire-compatible** so a future web editor reuses this exact backend |
-| Concurrency | **asyncio** | one loop; natural ordering of updates |
-| Presence / pub-sub | FastAPI **WebSocket** + **`redis.asyncio`** | live cursors + fan-out to all sessions |
-| Durable store | **Postgres 16** + **SQLAlchemy 2 (async)** + **Alembic** | contracts, ADRs, summaries, audit |
-| AI | **`anthropic`** SDK, **`claude-sonnet-4-6`** (raise a session to `claude-opus-4-8` as needed) | streaming + native tool use for background agents |
-| Inter-agent | **`mcp`** (official Python SDK) | Claude-native; future CLI can join a project |
-| Semantic check | stdlib **`ast`** (Python) + **`tree-sitter`** (multi-language) | parse-validate converged regions; map ranges→units |
-| Snapshots | **`GitPython`** | attributed checkpoints of live state |
-| Path safety | **`pathspec`** / `os.path.realpath` | block traversal at the Gateway |
-| **Client (Phase 1)** | **none** — engineers use existing Claude Code (CLI / desktop / VS Code / web) | zero client code; MCP connection via one-line settings config |
-| **Dashboard (Phase 1)** | Vanilla HTML/JS single-page app served by FastAPI | presence, conflict cards, audit log — the three things that need a visual surface |
-| **Web IDE (Phase 2)** | Monaco editor + Yjs WebSocket client | full live-cursor editing UI; thin client over the same Python CRDT server |
-| Tests | **pytest** + **pytest-asyncio** + **fakeredis** | CRDT-edit and watcher correctness first |
-| Dev infra | **docker-compose** (redis + postgres) | one-command local stack |
+| Server | **FastAPI + uvicorn** | Async, native WebSocket, Pydantic-validated schemas |
+| MCP interface | **`mcp`** (official Python SDK) | Claude-native; works with any Claude Code surface |
+| Concurrency | **asyncio** | Single event loop; natural signal serialization |
+| Signals / pub-sub | **`redis.asyncio`** | Sub-ms pub/sub; signal delivery; hot state |
+| Durable store | **Postgres 16 + SQLAlchemy 2 (async) + Alembic** | Contracts, ADRs, audit log |
+| Briefing generation | **`anthropic`** Python SDK | Compress activity log every ~10 turns |
+| Path safety | **`pathspec`** / `os.path.realpath` | Block traversal at the MCP Hub |
+| Dashboard | **Vanilla HTML/JS** served by FastAPI | Presence, conflict cards, audit log — no framework needed |
+| Tests | **pytest + pytest-asyncio + fakeredis** | Signal engine and context store correctness first |
+| Dev infra | **docker-compose** (redis + postgres) | One-command local stack |
 
-**Why no custom client in Phase 1:** Claude Code already ships a CLI, desktop app, VS Code extension,
-and web interface — all speaking MCP. Building a custom terminal client (Textual) would duplicate that
-work and create a maintenance burden. Instead Backyard is purely a server; engineers connect their
-*existing* Claude Code setup to it. Every new Claude Code surface Anthropic ships becomes a Backyard
-client automatically.
+**No custom client.** Engineers use their existing Claude Code setup.
 
----
-
-## 12. Proposed Repository Layout
+## A10. Repository Layout (Problem 1)
 
 ```
 backyard/
-├── docs/{technical-report,architecture,roadmap}.md
+├── docs/
+│   ├── technical-report.md     # this document
+│   ├── architecture.md         # component + data-flow reference
+│   └── roadmap.md              # phased plan
 ├── src/backyard/
 │   ├── server/
-│   │   ├── app.py                 # FastAPI entry: MCP endpoint + WS routes + dashboard
-│   │   ├── project_registry.py    # ① projects ⇄ sessions
-│   │   ├── sync/                  # ② Live Sync Engine
-│   │   │   ├── crdt_doc.py        #   pycrdt document per project
-│   │   │   └── ws_sync.py         #   pycrdt-websocket protocol
-│   │   ├── session.py             # ③ per-engineer session workspace
-│   │   ├── gateway.py             # ④ Agent Gateway (routes MCP tool calls → CRDT + watcher)
-│   │   ├── watcher/               # ⑤ Semantic Conflict Watcher
-│   │   │   ├── parse_check.py     #   ast / tree-sitter validation
-│   │   │   ├── unit_map.py        #   CRDT range → function/class map
-│   │   │   └── resolution.py      #   shared resolution cards
-│   │   ├── context/               # ⑥ shared context store (per project)
-│   │   ├── mcp_hub/               # ⑦ MCP server — standard tools + team-coordination tools
-│   │   │   ├── server.py          #   MCP server instance (one per session)
-│   │   │   ├── file_tools.py      #   read_file, apply_edit, list_files
-│   │   │   └── team_tools.py      #   publish_context, signal_ready, wait_for_signal, raise_resolution
-│   │   ├── presence.py            # ⑧ cursors + event bus (Redis pub/sub)
-│   │   └── snapshot.py            # ⑨ attributed git checkpoints
-│   ├── roles/definitions.py
-│   ├── protocol/                  # Pydantic event/message models
-│   └── dashboard/                 # Phase 1: lightweight single-page web app
-│       ├── index.html             #   presence, conflict cards, audit log
-│       └── static/                #   minimal JS (no framework needed in Phase 1)
-├── tests/                         # pytest (sync + watcher first)
+│   │   ├── app.py              # FastAPI entry: MCP endpoint + dashboard routes
+│   │   ├── project_registry.py # project ⇄ session mapping
+│   │   ├── mcp_hub/
+│   │   │   ├── server.py       # MCP server instance per session
+│   │   │   ├── context_tools.py   # query/publish context, file summaries
+│   │   │   ├── signal_tools.py    # signal_ready, wait_for_signal
+│   │   │   └── coord_tools.py     # raise_resolution, propose_cross_domain_edit
+│   │   ├── context/
+│   │   │   ├── store.py        # Postgres-backed context store
+│   │   │   ├── briefing.py     # project briefing assembly + compression
+│   │   │   └── models.py       # Contract, ADR, FileSummary Pydantic models
+│   │   ├── signals/
+│   │   │   └── engine.py       # Redis pub/sub signal engine
+│   │   ├── audit/
+│   │   │   └── log.py          # audit log writer + query
+│   │   ├── conflicts/
+│   │   │   └── surface.py      # contradiction detection + resolution card
+│   │   └── roles/
+│   │       └── definitions.py  # role configs, domain patterns, capabilities
+│   ├── protocol/               # Pydantic event/message models
+│   └── dashboard/              # static single-page web app
+│       ├── index.html          # presence, conflict cards, audit log
+│       └── static/
+├── tests/
+│   ├── test_signals.py         # signal engine correctness
+│   ├── test_context_store.py   # context store queries
+│   └── test_briefing.py        # briefing assembly + token budget
 ├── infra/docker-compose.yml
 ├── pyproject.toml
 └── README.md
 ```
 
-**No `client/` directory.** Engineers use their existing Claude Code setup; the client is not ours to
-build.
+**Build order:** `protocol` → `signals/engine` (tested in isolation) → `context/store` →
+`mcp_hub/context_tools` → `mcp_hub/signal_tools` → `briefing` → `mcp_hub/coord_tools` →
+`conflicts/surface` → `dashboard`. Signals and context store are the core correctness surfaces and
+come first.
 
-**Build order:** `protocol` → `sync` (CRDT live-edit, tested in isolation) → `mcp_hub/file_tools`
-(standard Claude Code tools over CRDT) → `gateway` → `mcp_hub/team_tools` → `watcher` → `dashboard`.
-The sync engine and watcher are the riskiest surfaces (Fatal Risks II & IV) and come first. The MCP
-file tools come before the team tools so basic single-engineer functionality works before multi-engineer
-features are added.
+## A11. Enterprise Roadmap (Problem 1)
 
----
+### Phase 1A — Core coordination server
+MCP server, shared context store, signal engine, project briefing, audit log. Engineers connect with
+one line of config. Target: an internal pilot with a real enterprise engineering team.
 
-## 13. Roadmap
+**Pilot experiment:** two engineers use Backyard for one sprint. Does coordination overhead fall vs.
+their current workflow? Does the "is the API ready?" message disappear? The Engineering Manager's
+subjective answer — "would you run the next sprint this way?" — matters as much as the time measurement.
 
-- **Phase 1 — Pilot (4 wks):** §10. *Does the team ship faster? Does coordination overhead fall?* Audit
-  log from day one. Target: one real enterprise engineering team.
-- **Phase 2 — Platform (3 mo):** all roles; web editor with live cursors; org-wide admin dashboard;
-  **SSO/SAML** (enterprise requirement, moved forward); compliance audit exports; CI/CD hooks; AST-level
-  merge suggestions; RBAC + org-level role schemas; load test to ~20 concurrent sessions; closed beta
-  with 3–5 enterprise customers.
-- **Phase 3 — Enterprise GA (6 mo):** **private-cloud and on-premise deployment** (non-negotiable for
-  regulated industries); Kubernetes session isolation; SOC 2 Type II; SCIM provisioning; custom
-  data-retention policy; issue-tracker (Linear/Jira) → project workflow; role-template marketplace;
-  async mode (agent works while an engineer is in a different timezone, briefs them on return); GA with
-  enterprise pricing (§15).
+### Phase 1B — Visibility and enterprise controls
+Web dashboard (presence, activity feed, conflict cards), SSO/SAML, org-wide admin, compliance audit
+exports. Required for enterprise procurement.
 
----
+### Phase 1C — Enterprise hardening
+Private/on-premise deployment, SOC 2 Type II, SCIM provisioning, CI/CD integration. Required for
+financial services, healthcare, and defense customers.
 
-## 14. The Five Fatal Risks → Mitigations
+## A12. Revenue Model (Problem 1)
+
+Enterprise B2B only. No individual or free tier. The buyer is an organization.
+
+| Tier | Price | Includes |
+|---|---|---|
+| **Team** | ~$75/seat/mo, annual | Unlimited projects, all roles, dashboard, audit log, CI hooks |
+| **Enterprise** | ~$150/seat/mo, annual | Team + SSO/SAML, SCIM, SOC 2 reports, private-cloud deployment, SLA |
+| **Enterprise+** | Custom contract | Enterprise + on-premise, custom retention policy, professional services |
+
+Charge for the coordination layer. Pass model tokens through at cost, shown per engineer.
+
+## A13. Five Fatal Risks → Mitigations (Problem 1)
 
 | # | Risk | Mitigation |
 |---|---|---|
-| **I** | Coordination overhead *rises* | always-merged live project + presence + `signal_ready`/`wait_for_signal` remove the merge step and the stand-up; **§10.1 measures it** and kills the project if overhead doesn't fall. |
-| **II** | Concurrent edits lose work | **CRDT guarantees convergence and lost-edit-freedom** at the text layer; the sync engine is tested exhaustively before any real project. |
-| **III** | Multi-principal trust unsafe | agents **stop and surface** under conflict; hard System floor no human/vote can cross. |
-| **IV** | Conflict resolution slow/confusing | most collisions auto-converge (CRDT) and never bother anyone; only *semantic* conflicts surface — to the involved humans, in a shared card, with a surgical region freeze. |
-| **V** | No revenue path | §15. |
+| **I** | Coordination overhead rises instead of falling | Pilot experiment measures it directly; project briefing + signals delete the stand-up. Kill if overhead doesn't fall. |
+| **II** | Context store becomes stale or noisy | Structured queries only (no vector search); auto-generated file summaries on every write; compressed activity log every ~10 turns. |
+| **III** | Agents make wrong decisions from bad shared context | ADR system records decisions durably; agents cannot proceed past a `raise_resolution` until engineers decide. |
+| **IV** | Enterprise won't adopt without compliance features | Audit log from day one; SSO + compliance exports in Phase 1B; private deployment in Phase 1C. |
+| **V** | No revenue without individual tier | By design: enterprise-only from the start. Pilot is the top-of-funnel, not a free tier. |
 
 ---
 
-## 15. Revenue Model (Enterprise)
+# Part B — Problem 2: Live Collaboration
 
-Backyard is an **enterprise product**. There is no individual or free tier. The buyer is an
-organization — a CTO, VP of Engineering, or Head of Platform — purchasing on behalf of their engineering
-team. The sales motion is enterprise B2B: pilot → expansion.
+## B1. The Problem
 
-Charge for the **collaboration layer and the operational guarantee**; pass model tokens through at cost
-(shown per session, attributable per engineer for internal chargebacks). The value sold is real-time
-team coordination, semantic conflict resolution, shared context management, full audit logging, and
-compliance controls — not the AI API call.
+The pull-request model was designed for humans working in isolation, asynchronously. AI agents
+inherited it unquestioned. Even with Problem 1 solved — even with perfect shared context and real-time
+signals — engineers still work on separate local codebases and merge through PRs.
 
-**Pricing structure:**
+The gap that remains: **there is no way for multiple engineers to contribute to one live codebase
+simultaneously.** Every edit still goes through a branch, a PR, a review cycle, a merge. The agent
+accelerates the individual edit; it does not eliminate the merge step.
 
-| Tier | Target | Price | What's included |
-|---|---|---|---|
-| **Team** | Startup or small org (10–50 engineers) | ~$75/seat/mo, annual | Unlimited projects, all roles, web editor, CI hooks, session history, shared-context store, audit log |
-| **Enterprise** | Mid-to-large org (50–500+ engineers) | ~$150/seat/mo, annual | Everything in Team + **SSO/SAML**, **SCIM provisioning**, **SOC 2 audit reports**, **private-cloud deployment**, dedicated SLA, account manager |
-| **Enterprise+** | Regulated industries / large platforms | Custom contract | Everything in Enterprise + on-premise deployment, custom data-retention policy, custom role schemas, professional services |
+## B2. The Vision
 
-**On private/on-premise deployment:** for many enterprise buyers — especially in financial services,
-healthcare, and defense — the requirement that code never leaves their infrastructure is non-negotiable.
-Private deployment is therefore an Enterprise tier feature, not a Phase-3 add-on. The Python stack and
-`pycrdt` make this straightforward: the coordination server is a standard Python application with no
-proprietary cloud dependencies.
+Each engineer logs into a shared project and gets their own **background AI agent**. All engineers edit
+**one live shared codebase at the same time**. Every agent's edits appear live for the whole team.
+Conflicts surface to the engineers involved. No pull requests. No merge step. No waiting.
 
-**Token cost reality:** a 1-hour session with 4 agents averaging 10 turns each ≈ 80k tokens at current
-rates. This is cents, not dollars. The cost of the *coordination* — the Backyard platform — is the
-product; the model API cost is a pass-through at cost, shown transparently per session, and attributable
-to each engineer for internal reporting.
+```
+                    ┌──────── ONE LIVE PROJECT ────────┐
+                    │       (shared codebase, CRDT)    │
+                    └──────────────────────────────────┘
+                       ▲           ▲           ▲
+                 Session A    Session B    Session C
+             (engineer + background agent, private chat)
+```
 
-**Why no free tier:** enterprise buyers don't adopt collaboration infrastructure through a free tier —
-they run a **pilot** (§10). The pilot *is* the top-of-funnel. A free tier would attract individual
-developers, generate support load, and dilute the enterprise signal. It is a distraction from the
-actual buyer.
+## B3. What Makes This Hard (Honest Assessment)
 
----
+**1. Workspace ownership.** Claude Code writes to the local filesystem. To share edits in real time,
+the code cannot live on each engineer's laptop — it must live on shared infrastructure. This requires
+Backyard to provision **cloud workspaces** (containers) per engineer. That is a platform company, not
+just a tool.
 
-## 16. Open Questions
+**2. Real-time file sync.** A CRDT (`pycrdt`, Yrs/Yjs-compatible) can sync a shared document across
+sessions without a merge step. But applying this to a directory tree of source files — handling
+renames, deletions, binary files — is more engineering than it appears.
 
-1. **Live-edit granularity:** keystroke-level CRDT for *everyone* (humans + agents), or agents land
-   edits as atomic patches while humans type live? (Recommended: CRDT for both; agents emit edits as
-   CRDT updates so they stream like a fast collaborator.)
-2. **Session privacy:** confirm humans see each other's *code edits + presence* but **not** each other's
-   agent chat. (Recommended: yes.)
-3. **Snapshot cadence:** time-based, on milestones, on every settle, or human-triggered "commit point"?
-4. **Resolution scope:** does a §5 decision bind just the region now, or persist as an ADR constraining
-   future edits? (Recommended: human picks "just this" vs. "record as ADR" on the card.)
+**3. Background autonomous agents.** Claude Code is interactive: an engineer types, the agent responds,
+the engineer approves. A "background agent" that works autonomously requires a separate server-side
+agent loop — not a Claude Code wrapper, but an independent process running against the Anthropic API
+per engineer per project.
 
----
+**4. Semantic conflict detection.** A CRDT guarantees text convergence but not code correctness. Two
+cleanly-merged edits can produce a file that won't compile or is logically contradictory. Detecting
+this requires real-time AST parsing and cross-session intent comparison. This is a research-level
+problem for the general case. The MVP can detect parse failures; true semantic detection is a
+12–18 month engineering investment.
 
-## 17. Conclusion
+## B4. Architecture (when built)
 
-The product is one shared project that the whole team contributes to at once, in real time — each person
-logging into their own private session with their own background agent, with conflicts surfaced to the
-people involved to settle between themselves. The architecture above makes that buildable in Python
-today: a CRDT live-sync core (`pycrdt`) for the always-merged guarantee, a semantic watcher for the one
-thing code needs that prose doesn't, and a per-session agent at every seat.
+| Component | What it does |
+|---|---|
+| **Cloud Workspace Service** | Provisions a container per engineer; all containers share the project codebase |
+| **Live Sync Engine (CRDT)** | `pycrdt` document per project; every edit converges on all sessions, lossless, no merge step |
+| **Background Agent Loop** | Server-side agent process per session; runs autonomously; edits applied as CRDT updates |
+| **Semantic Conflict Watcher** | AST-aware: detects broken or contradictory converged code; freezes the region; surfaces to engineers |
+| **Full Web IDE** | Monaco editor + Yjs WebSocket client; live cursors; the Yjs protocol is wire-compatible with `pycrdt` |
 
-The next move is §10 — two humans, two sessions, two background agents, one live project, four weeks —
-and the experiment in §10.1 to learn whether the empty quadrant is empty because it's hard, or because
-no one with the right incentives has tried.
+## B5. Why Problem 1 Comes First
+
+- Problem 1 is real, achievable now, and has zero direct competitors today
+- Problem 1 can ship to enterprise teams already using Claude Code — this month
+- Problem 1 validates the market before any cloud infrastructure is committed to
+- The team that wins Problem 1 has the relationships, trust, and revenue to fund Problem 2
+- Problem 2 without Problem 1 is building a platform before proving the pain
+
+**Build the shared brain first. Then build the shared workspace.**
 
 ---
 
 ## References
 
 - M. Reddy, *The Unbuilt Product*, white paper, June 2026.
-- Yjs / Yrs — CRDT framework for real-time collaboration; `pycrdt` Python bindings.
 - Model Context Protocol — specification and Python SDK (`mcp`).
+- Yjs / Yrs — CRDT framework; `pycrdt` Python bindings.
 - Anthropic, *Claude Code Agent Teams* — multi-agent coordination (2026).
