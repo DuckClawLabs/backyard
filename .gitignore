@@ -1,3 +1,6 @@
+# Backyard personal profile — never commit this
+.backyard-mcp/me.yaml
+
 # Python
 __pycache__/
 *.py[cod]

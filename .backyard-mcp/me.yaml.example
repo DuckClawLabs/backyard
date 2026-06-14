@@ -1,0 +1,20 @@
+# .backyard-mcp/me.yaml
+#
+# This file is PERSONAL — do not commit it.
+# It is already in .gitignore.
+#
+# Copy this file to .backyard-mcp/me.yaml and fill in your details.
+# Every teammate does the same thing. The project.id must be identical
+# across all teammates — that is what links you into the same shared brain.
+#
+# Roles: frontend | backend | devops | reviewer
+
+project:
+  name: Acme Payments Service      # human-readable project name
+  id: payments-service             # shared key — must be the same for all teammates
+
+  team:
+    - name: Alice Chen             # your full name (required)
+      email: alice@acme.com        # your email (required)
+      role: frontend               # your role (required)
+      owns: ["ui/**", "components/**"]   # optional — overrides the role's default domains

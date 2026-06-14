@@ -18,9 +18,9 @@ from backyard.server.context.briefing import assemble_briefing
 from backyard.server.conflicts.surface import get_open_cards, resolve_card
 from backyard.server.db import AsyncSessionLocal, engine
 from backyard.server.mcp_hub.server import build_mcp_server
+from backyard.server.profile_reader import ProfileInvalidError, ProfileNotFoundError, load_profile
 from backyard.server.project_registry import (
     get_active_project,
-    get_engineer_role_for_project,
     set_active_project,
 )
 from backyard.server.redis_client import close_redis, get_redis
@@ -67,21 +67,39 @@ async def mcp_sse(request: Request):
     """
     SSE endpoint for MCP connections.
 
-    One URL per organization — engineers never change this after initial setup.
-    Project is resolved from:
-      1. X-Git-Remote header sent by Claude Code (git remote of the current repo)
-      2. X-Project-Id header (explicit override)
-      3. Previously set active project for this session (set_active_project tool)
-      4. Falls back to "default" with a hint to call set_active_project
-
     Engineers configure once in .claude/settings.json:
       { "mcpServers": { "backyard": { "url": "https://backyard.yourcompany.com/mcp" } } }
+
+    Identity and project are resolved from .backyard-mcp/me.yaml in the workspace root.
+    The workspace root is sent by Claude Code via the X-Workspace-Root header.
     """
     auth = await authenticate(request)
 
-    # Resolve project from request context
-    project_id = await _resolve_project(request, auth)
-    auth_role = await get_engineer_role_for_project(project_id, auth.engineer_id)
+    # Load identity + project from the engineer's me.yaml
+    workspace_root = request.headers.get("X-Workspace-Root", ".")
+    try:
+        profile = load_profile(workspace_root)
+    except ProfileNotFoundError as e:
+        # Return a helpful MCP error so the engineer sees it in their Claude session
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(str(e), status_code=200)  # 200 so Claude Code shows the message
+    except ProfileInvalidError as e:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(f"Invalid me.yaml: {e}", status_code=200)
+
+    project_id = profile.id
+    auth.engineer_name = profile.engineer.name
+    auth.engineer_id = _email_to_id(profile.engineer.email)
+    auth_role = profile.engineer.role
+
+    # If the profile defines custom owns, store them for role enforcement
+    if profile.engineer.owns:
+        redis = get_redis()
+        await redis.set(
+            f"custom_owns:{project_id}:{auth.engineer_id}",
+            ",".join(profile.engineer.owns),
+            ex=86400,
+        )
 
     # Register session in Redis
     redis = get_redis()
@@ -235,35 +253,10 @@ async def project_events(project_id: str, request: Request):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _resolve_project(request: Request, auth: AuthContext) -> str:
-    """
-    Resolve which project this session belongs to.
-    Priority: explicit header > git remote header > session cache > default
-    """
-    # 1. Explicit project ID header (engineer or Claude Code can set this)
-    explicit = request.headers.get("X-Project-Id")
-    if explicit:
-        await set_active_project(auth.session_id, explicit)
-        return explicit
-
-    # 2. Git remote header — Claude Code may send the current repo's remote
-    git_remote = request.headers.get("X-Git-Remote")
-    if git_remote:
-        async with AsyncSessionLocal() as db:
-            from backyard.server.project_registry import resolve_project_from_remote
-            project = await resolve_project_from_remote(db, git_remote)
-            if project:
-                await set_active_project(auth.session_id, project.id)
-                return project.id
-
-    # 3. Previously set active project for this session
-    cached = await get_active_project(auth.session_id)
-    if cached:
-        return cached
-
-    # 4. Fallback — no project detected yet
-    # Return a sentinel; the MCP Hub will prompt the engineer to call set_active_project
-    return "unset"
+def _email_to_id(email: str) -> str:
+    """Derive a stable engineer ID from their email address."""
+    import hashlib, uuid
+    return str(uuid.UUID(hashlib.md5(email.lower().encode()).hexdigest()))
 
 
 def main() -> None:
