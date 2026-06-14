@@ -14,6 +14,7 @@ class Signal(BaseModel):
     topic: str
     published_by: str        # engineer_id
     published_by_role: str
+    git_branch: str = ""     # branch that published; "_project_" for project-scoped
     payload: dict[str, Any] = Field(default_factory=dict)
     message: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)

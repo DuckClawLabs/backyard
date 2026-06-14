@@ -108,6 +108,7 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
             await upsert_file_summary(
                 db,
                 project_id=project_id,
+                git_branch=auth.git_branch,
                 path=path,
                 summary=summary_text,
                 exports=exports,

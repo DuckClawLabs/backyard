@@ -136,6 +136,7 @@ class FileSummaryModel(Base):
     project_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
     )
+    git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
     path: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     exports: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
@@ -153,6 +154,7 @@ class SignalModel(Base):
         UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
     )
     topic: Mapped[str] = mapped_column(Text, nullable=False)
+    git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
     published_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
     published_by_role: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)

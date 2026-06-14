@@ -43,6 +43,7 @@ class ADR(BaseModel):
 class FileSummary(BaseModel):
     id: str
     project_id: str
+    git_branch: str
     path: str
     summary: str
     exports: list[str] = Field(default_factory=list)

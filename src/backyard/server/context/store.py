@@ -162,14 +162,18 @@ async def get_adrs(db: AsyncSession, project_id: str) -> list[ADR]:
 async def upsert_file_summary(
     db: AsyncSession,
     project_id: str,
+    git_branch: str,
     path: str,
     summary: str,
     exports: list[str],
     engineer_id: str,
 ) -> FileSummary:
     result = await db.execute(
-        select(FileSummaryModel)
-        .where(FileSummaryModel.project_id == project_id, FileSummaryModel.path == path)
+        select(FileSummaryModel).where(
+            FileSummaryModel.project_id == project_id,
+            FileSummaryModel.git_branch == git_branch,
+            FileSummaryModel.path == path,
+        )
     )
     row = result.scalar_one_or_none()
     now = datetime.now(timezone.utc)
@@ -183,6 +187,7 @@ async def upsert_file_summary(
         row = FileSummaryModel(
             id=str(uuid.uuid4()),
             project_id=project_id,
+            git_branch=git_branch,
             path=path,
             summary=summary,
             exports=exports,
@@ -194,30 +199,28 @@ async def upsert_file_summary(
     await db.commit()
     await db.refresh(row)
 
-    return FileSummary(
-        id=row.id,
-        project_id=row.project_id,
-        path=row.path,
-        summary=row.summary,
-        exports=row.exports,
-        last_modified_by=row.last_modified_by,
-        last_modified_at=row.last_modified_at,
-    )
+    return _file_summary_from_row(row)
 
 
 async def get_file_summary(
-    db: AsyncSession, project_id: str, path: str
+    db: AsyncSession, project_id: str, git_branch: str, path: str
 ) -> FileSummary | None:
     result = await db.execute(
-        select(FileSummaryModel)
-        .where(FileSummaryModel.project_id == project_id, FileSummaryModel.path == path)
+        select(FileSummaryModel).where(
+            FileSummaryModel.project_id == project_id,
+            FileSummaryModel.git_branch == git_branch,
+            FileSummaryModel.path == path,
+        )
     )
     row = result.scalar_one_or_none()
-    if not row:
-        return None
+    return _file_summary_from_row(row) if row else None
+
+
+def _file_summary_from_row(row: FileSummaryModel) -> FileSummary:
     return FileSummary(
         id=row.id,
         project_id=row.project_id,
+        git_branch=row.git_branch,
         path=row.path,
         summary=row.summary,
         exports=row.exports,
@@ -229,6 +232,7 @@ async def get_file_summary(
 async def search_context(
     db: AsyncSession,
     project_id: str,
+    git_branch: str = "",
     artifact_type: str | None = None,
     role: str | None = None,
     path_prefix: str | None = None,
@@ -263,7 +267,10 @@ async def search_context(
             })
 
     if artifact_type in (None, "file_summary"):
-        stmt = select(FileSummaryModel).where(FileSummaryModel.project_id == project_id)
+        stmt = select(FileSummaryModel).where(
+            FileSummaryModel.project_id == project_id,
+            FileSummaryModel.git_branch == git_branch,
+        )
         if path_prefix:
             stmt = stmt.where(FileSummaryModel.path.startswith(path_prefix))
         rows = (await db.execute(stmt)).scalars().all()
@@ -271,6 +278,7 @@ async def search_context(
             results.append({
                 "type": "file_summary",
                 "id": r.path,
+                "git_branch": r.git_branch,
                 "summary": r.summary,
                 "exports": r.exports,
                 "last_modified_by": r.last_modified_by,
