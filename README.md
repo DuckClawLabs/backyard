@@ -195,6 +195,149 @@ The buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers** wh
 
 ---
 
+## Deployment
+
+Backyard runs as a single server (FastAPI + Redis + Postgres). Three ways to deploy:
+
+---
+
+### Option 1 — Use the hosted version *(fastest)*
+
+No setup. Add one line to `.claude/settings.json` and you're done.
+
+```json
+{
+  "mcpServers": {
+    "backyard": {
+      "url": "https://backyard.yourcompany.com/project/YOUR_PROJECT_ID",
+      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+Get a project URL and API key at [backyard.app](https://backyard.app) *(coming soon)*.
+
+---
+
+### Option 2 — Deploy on Railway *(5 minutes, free tier works)*
+
+Best for teams that want their data on their own infrastructure without managing servers.
+
+**Step 1 — Push to GitHub** (fork or clone this repo)
+
+**Step 2 — Deploy on Railway**
+1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub**
+2. Select your repo
+3. Railway auto-detects the `Dockerfile` and deploys
+
+**Step 3 — Add services**
+In your Railway project, click **+ New** and add:
+- **Redis** → select the Redis template
+- **PostgreSQL** → select the Postgres template
+
+Railway auto-injects `REDIS_URL` and `DATABASE_URL` — no manual wiring needed.
+
+**Step 4 — Set environment variables**
+In Railway → your app service → **Variables**:
+
+```
+ANTHROPIC_API_KEY   =  sk-ant-...
+API_KEYS            =  key-alice,key-bob,key-carol
+BASE_URL            =  https://your-app.up.railway.app
+LOG_LEVEL           =  INFO
+```
+
+Railway gives you a URL like `https://your-app.up.railway.app`.
+
+**Step 5 — Run migrations**
+```bash
+railway run alembic upgrade head
+```
+
+**Step 6 — Engineers add one line to their Claude Code settings**
+```json
+{
+  "mcpServers": {
+    "backyard": {
+      "url": "https://your-app.up.railway.app/project/YOUR_PROJECT_ID",
+      "headers": { "Authorization": "Bearer key-alice" }
+    }
+  }
+}
+```
+
+Done. The whole team is connected.
+
+---
+
+### Option 3 — Self-hosted on your own server *(enterprise)*
+
+For teams that need data residency, private networking, or compliance controls.
+
+**Requirements:** a Linux server with Docker and Docker Compose installed.
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/DuckClawLabs/backyard.git
+cd backyard
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — set ANTHROPIC_API_KEY, API_KEYS, BASE_URL, POSTGRES_PASSWORD
+
+# 3. Start all services (app + Postgres + Redis)
+docker-compose -f infra/docker-compose.prod.yml up -d
+
+# 4. Run database migrations
+docker-compose -f infra/docker-compose.prod.yml exec app alembic upgrade head
+
+# 5. (Optional) Put nginx in front for HTTPS
+# Point your domain at the server; configure a reverse proxy to localhost:8000
+```
+
+The server is now running at `http://your-server:8000`.
+
+**Engineers connect:**
+```json
+{
+  "mcpServers": {
+    "backyard": {
+      "url": "https://your-internal-domain.com/project/YOUR_PROJECT_ID",
+      "headers": { "Authorization": "Bearer key-alice" }
+    }
+  }
+}
+```
+
+For SSO/SAML, SCIM provisioning, and SOC 2 audit controls — see the [Enterprise section](docs/roadmap.md) of the roadmap.
+
+---
+
+### Local development
+
+```bash
+# Clone and install
+git clone https://github.com/DuckClawLabs/backyard.git
+cd backyard
+pip install uv
+uv pip install -e ".[dev]"
+
+# Copy and fill env
+cp .env.example .env
+
+# Start Redis + Postgres + app (with live reload)
+docker-compose -f infra/docker-compose.yml up
+
+# Apply migrations
+alembic upgrade head
+
+# Run tests
+pytest
+```
+
+---
+
 ## Build phases
 
 | Phase | What ships |

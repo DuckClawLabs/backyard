@@ -1,0 +1,56 @@
+# Self-hosted production — Option 2 (Railway) or Option 3 (enterprise server).
+#
+# Usage:
+#   cp .env.example .env       # fill in your values
+#   docker-compose -f infra/docker-compose.prod.yml up -d
+#
+# After first run, apply database migrations:
+#   docker-compose -f infra/docker-compose.prod.yml exec app alembic upgrade head
+
+services:
+  app:
+    image: ghcr.io/duckclawlabs/backyard:latest   # or: build: { context: . }
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://backyard:${POSTGRES_PASSWORD}@postgres:5432/backyard
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: backyard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: backyard
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U backyard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_data:
+  redis_data:
