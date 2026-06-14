@@ -17,6 +17,7 @@ class Endpoint(BaseModel):
 
 class Contract(BaseModel):
     id: str
+    contract_id: str = ""   # user-defined name, e.g. "user-api-v1"
     project_id: str
     published_by_role: str
     published_by_engineer: str

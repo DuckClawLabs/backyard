@@ -22,6 +22,7 @@ from backyard.server.mcp_hub.server import build_mcp_server
 from backyard.server.profile_reader import ProfileInvalidError, ProfileNotFoundError, load_profile
 from backyard.server.project_registry import (
     get_active_project,
+    get_engineer_role_for_project,
     set_active_project,
 )
 from backyard.server.redis_client import close_redis, get_redis

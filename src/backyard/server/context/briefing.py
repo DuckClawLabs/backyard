@@ -77,8 +77,8 @@ async def assemble_briefing(
 
     briefing_contracts = [
         BriefingContract(
-            contract_id=c.id if hasattr(c, "contract_id") else str(c.id),
-            description=c.description or f"Contract {c.id}",
+            contract_id=c.contract_id or c.id,
+            description=c.description or f"Contract {c.contract_id or c.id}",
             published_by_role=c.published_by_role,
             published_at=c.created_at,
         )

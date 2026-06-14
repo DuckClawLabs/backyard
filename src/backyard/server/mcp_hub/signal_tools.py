@@ -63,9 +63,9 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
             topic=topic,
             engineer_id=auth.engineer_id,
             role=auth.role,
-            git_branch=auth.git_branch,
             payload=payload,
             message=message,
+            git_branch=auth.git_branch,
         )
         await record_activity(project_id, f"{auth.role} ({auth.engineer_name}): signaled '{topic}' ready")
         return f"Signal '{topic}' published (id: {signal.id})."

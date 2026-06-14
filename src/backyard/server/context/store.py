@@ -75,6 +75,7 @@ async def get_contract(db: AsyncSession, project_id: str, contract_id: str) -> C
 def _contract_from_row(row: ContractModel) -> Contract:
     return Contract(
         id=row.id,
+        contract_id=row.contract_id,
         project_id=row.project_id,
         published_by_role=row.role,
         published_by_engineer=row.published_by,
@@ -162,11 +163,11 @@ async def get_adrs(db: AsyncSession, project_id: str) -> list[ADR]:
 async def upsert_file_summary(
     db: AsyncSession,
     project_id: str,
-    git_branch: str,
     path: str,
     summary: str,
     exports: list[str],
     engineer_id: str,
+    git_branch: str = "",
 ) -> FileSummary:
     result = await db.execute(
         select(FileSummaryModel).where(

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backyard.server.auth import AuthContext
 from backyard.server.roles.definitions import has_capability
 from backyard.server.mcp_hub import context_tools, signal_tools, coord_tools, file_tools
-from backyard.server import audit
+from backyard.server.audit import log as audit_log
 
 
 def build_mcp_server(
@@ -71,7 +71,7 @@ def build_mcp_server(
                 result_text = f"Error: {exc}"
 
             latency = int((time.monotonic() - start) * 1000)
-            await audit.log.append(
+            await audit_log.append(
                 db=db,
                 project_id=auth.project_id,
                 engineer_id=auth.engineer_id,

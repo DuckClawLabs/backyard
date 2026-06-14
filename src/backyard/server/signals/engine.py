@@ -29,9 +29,9 @@ async def publish_signal(
     topic: str,
     engineer_id: str,
     role: str,
-    git_branch: str,
     payload: dict,
     message: str = "",
+    git_branch: str = "",
 ) -> Signal:
     signal = Signal(
         id=str(uuid.uuid4()),
@@ -104,13 +104,11 @@ async def await_signal(
     await pubsub.subscribe(channel)
 
     try:
-        deadline = asyncio.get_event_loop().time() + timeout
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                data = json.loads(message["data"])
-                return WaitResult(timed_out=False, signal=Signal(**data))
-            if asyncio.get_event_loop().time() >= deadline:
-                break
+        async with asyncio.timeout(timeout):
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = json.loads(message["data"])
+                    return WaitResult(timed_out=False, signal=Signal(**data))
     except asyncio.TimeoutError:
         pass
     finally:

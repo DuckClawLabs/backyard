@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -20,13 +21,19 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
+# Portable type aliases: use PostgreSQL-native types in production,
+# fall back to plain JSON/TEXT on other backends (e.g. SQLite in tests).
+_JSONB = JSON().with_variant(JSONB(), "postgresql")
+_TEXT_ARRAY = JSON().with_variant(ARRAY(Text), "postgresql")
+_UUID = Text().with_variant(UUID(as_uuid=False), "postgresql")
+
 from backyard.server.db import Base
 
 
 class Org(Base):
     __tablename__ = "orgs"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     plan: Mapped[str] = mapped_column(String(32), default="team")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -38,8 +45,8 @@ class Org(Base):
 class Engineer(Base):
     __tablename__ = "engineers"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
-    org_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("orgs.id"), nullable=False)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
+    org_id: Mapped[str] = mapped_column(_UUID, ForeignKey("orgs.id"), nullable=False)
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -51,9 +58,9 @@ class Engineer(Base):
 class ApiToken(Base):
     __tablename__ = "api_tokens"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     engineer_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("engineers.id"), nullable=False
+        _UUID, ForeignKey("engineers.id"), nullable=False
     )
     token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
@@ -71,8 +78,8 @@ class ApiToken(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
-    org_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("orgs.id"), nullable=False)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
+    org_id: Mapped[str] = mapped_column(_UUID, ForeignKey("orgs.id"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     git_remote: Mapped[str | None] = mapped_column(Text, unique=True)   # e.g. "github.com/acme/payments"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -85,10 +92,10 @@ class ProjectMember(Base):
     __tablename__ = "project_members"
 
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), primary_key=True
+        _UUID, ForeignKey("projects.id"), primary_key=True
     )
     engineer_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("engineers.id"), primary_key=True
+        _UUID, ForeignKey("engineers.id"), primary_key=True
     )
     role: Mapped[str] = mapped_column(String(64), nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -99,15 +106,15 @@ class ProjectMember(Base):
 class ContractModel(Base):
     __tablename__ = "contracts"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     contract_id: Mapped[str] = mapped_column(Text, nullable=False)
-    published_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    published_by: Mapped[str] = mapped_column(_UUID, nullable=False)
     role: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    content_json: Mapped[dict] = mapped_column(_JSONB, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -115,32 +122,32 @@ class ContractModel(Base):
 class ADRModel(Base):
     __tablename__ = "adrs"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     adr_ref: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="accepted")
-    affects: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    affects: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
     decision: Mapped[str] = mapped_column(Text, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, default="")
-    decided_by: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    decided_by: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class FileSummaryModel(Base):
     __tablename__ = "file_summaries"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
     path: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    exports: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
-    last_modified_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    exports: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
+    last_modified_by: Mapped[str] = mapped_column(_UUID, nullable=False)
     last_modified_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -149,15 +156,15 @@ class FileSummaryModel(Base):
 class SignalModel(Base):
     __tablename__ = "signals"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     topic: Mapped[str] = mapped_column(Text, nullable=False)
     git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    published_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    published_by: Mapped[str] = mapped_column(_UUID, nullable=False)
     published_by_role: Mapped[str] = mapped_column(String(64), nullable=False)
-    payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    payload_json: Mapped[dict] = mapped_column(_JSONB, default=dict)
     message: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -165,21 +172,21 @@ class SignalModel(Base):
 class ResolutionModel(Base):
     __tablename__ = "resolutions"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     conflict_a: Mapped[str] = mapped_column(Text, nullable=False)
     conflict_b: Mapped[str] = mapped_column(Text, nullable=False)
-    affects: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    affects: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
     agent_read: Mapped[str] = mapped_column(Text, default="")
-    raised_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    raised_by: Mapped[str] = mapped_column(_UUID, nullable=False)
     raised_by_role: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="open")
     decision: Mapped[str | None] = mapped_column(Text)
-    decided_by: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
-    adr_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
+    decided_by: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
+    adr_id: Mapped[str | None] = mapped_column(_UUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -187,13 +194,13 @@ class ResolutionModel(Base):
 class ActivityLogModel(Base):
     __tablename__ = "activity_log"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("projects.id"), nullable=False
+        _UUID, ForeignKey("projects.id"), nullable=False
     )
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    bullets: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    bullets: Mapped[list[str]] = mapped_column(_TEXT_ARRAY, default=list)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -201,15 +208,15 @@ class AuditLogModel(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    project_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    engineer_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    project_id: Mapped[str] = mapped_column(_UUID, nullable=False)
+    engineer_id: Mapped[str] = mapped_column(_UUID, nullable=False)
     role: Mapped[str] = mapped_column(String(64), nullable=False)
-    session_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    session_id: Mapped[str] = mapped_column(_UUID, nullable=False)
     git_branch: Mapped[str] = mapped_column(Text, nullable=False, default="")
     turn_id: Mapped[str] = mapped_column(Text, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     tool_name: Mapped[str] = mapped_column(Text, nullable=False)
-    arguments_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    arguments_json: Mapped[dict] = mapped_column(_JSONB, default=dict)
     result_summary: Mapped[str] = mapped_column(Text, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     checksum: Mapped[str] = mapped_column(Text, nullable=False)
