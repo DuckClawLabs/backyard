@@ -12,7 +12,13 @@ Version 0.4 · Status: Design · Stack: Python · Target: Enterprise
 The white paper establishes the gap: every AI coding agent assumes **one human per session**, yet
 enterprise software is built by teams of dozens to hundreds of engineers. AI has accelerated the
 individual — it has not touched the team's coordination overhead. **Backyard** fills that gap with a
-specific shape:
+specific shape — and a deliberate design principle:
+
+> **Backyard is a superset of Claude Code, not a replacement.** Every capability Claude Code provides
+> to a single engineer — file editing, shell commands, git operations, MCP tool use, multi-step agent
+> loops, streaming, slash commands, CLAUDE.md project context — is available in every session.
+> Backyard adds the layer Claude Code deliberately left out: **many engineers, many agents, one shared
+> live project, simultaneously.**
 
 > Each engineer logs into the platform and gets their **own private session with their own background AI
 > agent**. All of those sessions contribute to **one live shared project at the same time.** Every
@@ -71,7 +77,29 @@ accountability with shared visibility.
 - **Full audit trail, always on.** Every agent action is logged with `(engineer, role, agent-turn,
   timestamp)`. Compliance and incident review don't require reconstructing history from git blame.
 
-### 1.3 The one hard problem this creates
+### 1.3 Full Claude Code feature parity — at every seat
+
+Each engineer's session in Backyard has the complete Claude Code feature set. Nothing is cut to make
+collaboration work. The multi-human layer is *additive*.
+
+| Claude Code capability | In every Backyard session | Extended by Backyard |
+|---|---|---|
+| File read / edit / write | ✓ | Edits stream live to all teammates |
+| Shell / bash command execution | ✓ | Output visible to all (with audit attribution) |
+| Git operations | ✓ | Plus team-level attributed snapshots per session |
+| MCP tool use (standard tools) | ✓ | Plus shared MCP Hub with team-coordination tools |
+| Multi-step autonomous agent loops | ✓ | Agent output streams to all sessions in real time |
+| Streaming responses | ✓ | Streamed to all participants, not just the operator |
+| Slash commands | ✓ | — |
+| CLAUDE.md project context | ✓ | A shared project-level CLAUDE.md visible to all agents |
+| IDE / terminal client | ✓ (terminal, Phase 2: web IDE) | Live presence and shared view alongside |
+| Permission model (approve/deny tools) | ✓ per session | Role-based capability enforcement at the org level |
+
+The principle: **an engineer in Backyard should be at least as capable as an engineer using Claude Code
+alone** — and additionally able to see, coordinate with, and build on what their teammates' agents are
+doing in real time.
+
+### 1.4 The one hard problem this creates
 
 Real-time text collaboration is well understood for *prose*, because any interleaving of prose edits is
 still valid prose. **Code is not prose:** two cleanly-merged edits can produce a file that does not

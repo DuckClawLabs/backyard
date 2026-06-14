@@ -49,6 +49,28 @@ how fast individuals work alone.
 - [Author & links](#author--links)
 - [License](#license)
 
+## Built on Claude Code — extended for teams
+
+**Backyard is a superset of Claude Code, not a replacement.** Every capability Claude Code gives a
+single engineer is available in every Backyard session: file editing, shell commands, git operations,
+MCP tool use, multi-step agent loops, streaming, slash commands, CLAUDE.md project context.
+
+Backyard adds the one layer Claude Code deliberately left out — the team layer:
+
+| Feature | Claude Code | Backyard |
+|---|---|---|
+| File read / edit / write | ✓ solo | ✓ streams live to all teammates |
+| Shell / bash execution | ✓ solo | ✓ output visible to all (attributed in audit log) |
+| Git operations | ✓ solo | ✓ plus team-level attributed snapshots |
+| MCP tool use | ✓ per session | ✓ plus shared MCP Hub with team-coordination tools |
+| Multi-step agent loops | ✓ solo | ✓ agent output streams to all sessions in real time |
+| CLAUDE.md project context | ✓ solo | ✓ shared project-level CLAUDE.md across all agents |
+| Permission model | ✓ per engineer | ✓ plus org-level role-based capability enforcement |
+| Sessions | 1 human per session | N engineers, each with their own session + agent, one live project |
+
+An engineer in Backyard should be at least as capable as one using Claude Code alone — and additionally
+able to see, coordinate with, and build on what their teammates' agents are doing in real time.
+
 ## Who this is for
 
 **Backyard is built for engineering organizations** — teams of 10 to 500+ engineers working on shared
