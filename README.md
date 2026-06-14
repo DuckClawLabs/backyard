@@ -2,7 +2,7 @@
 
 # 🌳 Backyard
 
-### The shared brain for engineering teams using Claude Code
+### Teammates share one brain between their agents
 
 [![Status](https://img.shields.io/badge/status-building-orange?style=flat-square)](docs/technical-report.md)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
@@ -20,15 +20,21 @@
 
 ---
 
-> Claude Code makes individual engineers faster. It does nothing for the team.
-> Every agent session is isolated. Agents don't know what their teammates are building.
-> Backyard fixes that — with one line of config.
+> Two engineers. Two agents. One shared brain.
+>
+> Each engineer on your team has their own Claude Code agent. Those agents know nothing about each other.
+> Backyard gives them a shared brain — so every agent on the team knows what the others are building, in real time, automatically.
+> One line of config. No new tools. No workflow changes.
 
 ---
 
 ## The problem no one has solved yet
 
-Your engineering team is using Claude Code. Each engineer has their own agent. Those agents are working in parallel — and they are **completely blind to each other**.
+Your engineering team uses Claude Code. Each engineer has their own agent. Those agents work in parallel — and they are **completely blind to each other**.
+
+Engineer A's agent does not know what Engineer B's agent is building. Engineer B's agent does not know what decisions Engineer A's agent has made. The moment two teammates start working on the same project with their agents, coordination falls back on humans — Slack messages, stand-ups, CLAUDE.md files nobody keeps current.
+
+**The agents got faster. The team coordination overhead stayed the same.**
 
 Here is what that looks like in practice:
 
@@ -50,9 +56,9 @@ You can try to fix this with a `CLAUDE.md` file — but it is manual, asynchrono
 
 ---
 
-## The solution: one shared brain, one line of config
+## The solution: a shared brain between teammates' agents
 
-Backyard is an **MCP coordination server**. Every engineer's Claude Code connects to it. Every agent on the team now shares context, signals, contracts, and decisions — in real time, automatically.
+Backyard is an **MCP coordination server**. Every engineer points their Claude Code at it. From that moment, every agent on the team shares the same brain — the same contracts, the same decisions, the same real-time signals. Each agent still runs privately for its own engineer. But they all know what the others know.
 
 ```json
 // .claude/settings.json  (one-time addition per engineer)
