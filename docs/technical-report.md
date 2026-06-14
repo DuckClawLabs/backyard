@@ -1,4 +1,4 @@
-# Backyard — Technical Report: Problem 1
+# Backyard — Technical Report
 
 **MCP Coordination Server for Enterprise Engineering Teams**
 *The Unbuilt Product* companion document · M. Reddy, June 2026
@@ -1022,7 +1022,7 @@ Backyard's control and cost. Backyard's own API calls are small, cheap, and boun
 
 - No vector database — all context queries are structured (by type, path, role, contract ID)
 - No custom Claude Code client — we use the MCP protocol instead
-- No CRDT library — no real-time shared codebase in Problem 1
+- No CRDT library — no real-time shared codebase
 - No container orchestration — Problem 1 runs as a single FastAPI process behind a load balancer
 
 ---

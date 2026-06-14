@@ -1,10 +1,10 @@
 # Backyard — Architecture Reference
 
-Two problems. We are building **Problem 1** now. Full design in [`technical-report.md`](./technical-report.md).
+Full design in [`technical-report.md`](./technical-report.md).
 
 ---
 
-## Problem 1: MCP Coordination Server
+## MCP Coordination Server
 
 An MCP server that gives every engineer's Claude Code agent a **shared brain** — shared context, real-time signals, contracts, and a full audit trail.
 
@@ -87,16 +87,4 @@ Open decisions: none
 | **Redis** | Signals, pub/sub, active sessions, hot briefing cache |
 | **Postgres** | Contracts, ADRs, file summaries, audit log, project config |
 
-No vector database in Problem 1. All context queries are structured (by role, file path, contract ID) — faster, cheaper, never stale within an active session.
-
----
-
-## Problem 2: Live Collaboration (future vision)
-
-Each engineer gets a **cloud workspace** (a container provisioned by Backyard). All containers share one live codebase via CRDT sync. Every engineer's background agent streams edits into the shared project in real time. Conflicts surface live.
-
-Requires: cloud workspace provisioning, CRDT file sync (`pycrdt`), server-side background agents, semantic conflict detection (AST-aware), full web IDE with live cursors.
-
-**This is a 1–2 year build. Problem 1 comes first.**
-
-See [`technical-report.md`](./technical-report.md) §B for the full Problem 2 design.
+No vector database. All context queries are structured (by role, file path, contract ID) — faster, cheaper, never stale within an active session.
