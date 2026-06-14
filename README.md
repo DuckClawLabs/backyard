@@ -2,7 +2,7 @@
 
 # 🌳 Backyard
 
-### Multi-Agent Coordination for Engineering Teams
+### The shared brain for engineering teams using Claude Code
 
 [![Status](https://img.shields.io/badge/status-building-orange?style=flat-square)](docs/technical-report.md)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
@@ -20,105 +20,209 @@
 
 ---
 
-> **Backyard is a team coordination layer that wraps Claude Code for enterprise engineering teams.**
-> Each engineer connects their existing Claude Code to one shared project — their agent has full shared context of what every other agent on the team is doing, in real time.
-> When agents make contradictory decisions or collide on the same code, the conflict surfaces to the engineers involved and they choose between themselves.
+> Claude Code makes individual engineers faster. It does nothing for the team.
+> Every agent session is isolated. Agents don't know what their teammates are building.
+> Backyard fixes that — with one line of config.
 
 ---
 
-## Two problems. One product.
+## The problem no one has solved yet
 
-### Problem 1 — Agents on the same team are completely blind to each other ← *we are building this now*
+Your engineering team is using Claude Code. Each engineer has their own agent. Those agents are working in parallel — and they are **completely blind to each other**.
 
-Every team using Claude Code today has this problem. Each agent knows only what its own engineer has told it. There is no shared state between sessions.
+Here is what that looks like in practice:
 
-- Agent A writes an integration for an API that Agent B hasn't shipped yet — wrong assumptions baked in silently
-- Agent B makes a breaking change — Agent A's agent doesn't know for hours
-- Two agents make contradictory architecture decisions independently — nobody finds out until PR review
-- Agent A needs to know if the auth middleware is ready — only a Slack message can answer it, not an agent
+**Agent A builds against an API that doesn't exist yet.**
+Agent B is implementing the user profile endpoint. Agent A doesn't know that. Agent A guesses the API shape, bakes in wrong assumptions, and builds a full integration. Agent B ships a different shape two days later. Agent A's component breaks. Neither agent knew.
 
-**No tool solves this today.** You can put shared context in a `CLAUDE.md` file — but it's manual, asynchronous, and agents don't get notified when it changes.
+**A breaking change ships silently.**
+Agent B refactors the auth middleware. Agent A's agent spent the morning building on top of the old interface. There was no notification, no signal, no shared state. The conflict surfaces at PR review — hours later.
 
-Backyard fixes it with an **MCP coordination server**: a shared brain all agents on the team connect to. Every agent knows what contracts have been published, what decisions have been made, what each teammate's agent is working on — in real time, automatically, without any human manually updating a doc.
+**Two agents make contradictory architecture decisions.**
+Engineer A tells their agent to use Postgres. Engineer B, working independently, tells their agent to use SQLite. Both agents proceed. Two incompatible database setups land in the same codebase. Nobody finds out until the build breaks.
+
+**The "is it ready?" message is still a Slack message.**
+Agent A needs to know if the auth middleware is ready before it can proceed. The agent cannot ask another agent. So a human sends a Slack message, waits for a reply, and pastes the answer back into their session. The agent is faster; the coordination overhead is the same.
+
+You can try to fix this with a `CLAUDE.md` file — but it is manual, asynchronous, and agents have no way to know when it changes. The problem scales with the size of the team and the pace of the agents. As agents get faster, this gets worse.
+
+**No tool solves this today.**
+
+---
+
+## The solution: one shared brain, one line of config
+
+Backyard is an **MCP coordination server**. Every engineer's Claude Code connects to it. Every agent on the team now shares context, signals, contracts, and decisions — in real time, automatically.
 
 ```json
-// .claude/settings.json  (one-time setup per engineer)
+// .claude/settings.json  (one-time addition per engineer)
 {
   "mcpServers": {
-    "backyard": { "url": "https://backyard.yourcompany.com/project/abc" }
+    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
   }
 }
 ```
 
-That one line gives every agent on the team a shared brain. No new tool to install. No workflow to change. Engineers keep using Claude Code exactly as they do today.
+That is the entire setup. No new tool to install. No workflow to change. Engineers keep using whichever Claude Code surface they already use — CLI, desktop app, VS Code extension, or web. Backyard is invisible infrastructure underneath.
 
 ---
 
-### Problem 2 — There is no way for multiple engineers to contribute to one live codebase simultaneously ← *the bigger vision*
+## What every agent gets
 
-The pull-request model was designed for humans working in isolation, asynchronously. AI agents inherited it unquestioned. The result: even with AI, teams still wait on PRs, lose context at every handoff, and burn the first hour of every cross-timezone session re-explaining what happened.
+### Shared contracts — the stand-up that never happens
 
-The real vision: **each engineer logs into a shared project, gets their own background AI agent, and every agent's edits appear live for the whole team — no PRs, no merge step, no waiting.**
+Agent B finishes the user API. It publishes the contract and signals:
 
-This requires cloud workspaces, real-time sync infrastructure, and a different class of engineering. It is the right long-term answer. It is not where we start.
+```
+publish_context({ type: "contract", id: "user-api-v1",
+                  endpoints: [GET /api/users/:id → UserDTO] })
+signal_ready("user-api")
+```
 
-**We solve Problem 1 first.** Problem 1 is real, achievable now, and has no direct competitors. The team that wins Problem 1 earns the right to build Problem 2.
+Agent A was waiting:
+
+```
+wait_for_signal("user-api")
+→ resolves immediately with the contract
+→ Agent A builds against the real shape
+```
+
+The "is the API ready?" Slack message never gets sent. The stand-up never happens.
 
 ---
 
-## What we're building (Problem 1)
+### Project briefing — every agent knows the state of the team
 
-An **MCP coordination server** that every engineer's Claude Code connects to. It gives every agent on the team:
+At the start of every agent turn, the briefing is injected automatically:
 
-| What agents get | How |
+```
+=== PROJECT BRIEFING ===
+Active: Frontend (A), Backend (B), Reviewer (C)
+Recent: B published user-api-v1 · A completed UserCard component
+Contracts: user-api-v1 → GET /api/users/:id → UserDTO {id, email, displayName}
+Decisions: ADR-001: Use Postgres for all persistence (decided 2h ago)
+Open decisions: none
+=== END BRIEFING ===
+```
+
+No prompt engineering required. No engineer has to tell their agent what teammates are doing. The briefing is always current, always under 2 000 tokens, and always injected — every single turn.
+
+---
+
+### Conflict surface — contradictions caught before they ship
+
+Two agents receive contradictory instructions. Both call `raise_resolution`. Both engineers immediately see a resolution card on the dashboard:
+
+```
+CONFLICT — Database technology
+  Engineer A said: use Postgres
+  Engineer B said: use SQLite
+  Affected: db/**, infra/docker-compose.yml
+  [Choose Postgres]  [Choose SQLite]  [Discuss first]
+  Record as ADR? [Yes] [No]
+```
+
+The agents are paused. The engineers decide together — in 60 seconds, because they are right here, working at the same time. The decision is recorded as an ADR and injected into every subsequent briefing. No agent proceeds until engineers choose.
+
+---
+
+### Role system — agents know their domain
+
+Each engineer sets a role: **Frontend**, **Backend**, **DevOps**, **Reviewer**. The agent knows its default domain. If it needs to touch another role's files, it asks first — visibly, through the dashboard — instead of stepping on someone else's work silently.
+
+Custom roles can be defined in `backyard.toml` for teams with non-standard structures.
+
+---
+
+### Full audit log — from day one
+
+Every agent action is logged: `(engineer, role, session, timestamp, tool, result)`. Always on, cannot be disabled. Filterable by engineer, session, and time range. Exportable as CSV or JSON.
+
+This is not a phase-3 compliance feature. It is on from the first line of code, because enterprise procurement requires it from day one.
+
+---
+
+## What changes for your team
+
+| Before Backyard | After Backyard |
 |---|---|
-| **Shared project context** | Architecture decisions, active work, what's in progress — always current |
-| **Published contracts** | Agent B publishes the API schema → Agent A's agent gets it immediately, no Slack needed |
-| **Real-time signals** | `signal_ready("auth-middleware")` → Agent A unblocks automatically |
-| **Team activity feed** | What each agent has done in the last hour, visible to all |
-| **Full audit log** | Every agent action logged with `(engineer, role, timestamp)` for compliance |
+| Agents guess API shapes | Agents build against published contracts |
+| Breaking changes discovered at PR review | Contradictions surfaced to engineers immediately |
+| "Is it ready?" Slack messages | `wait_for_signal` resolves automatically |
+| CLAUDE.md manually maintained | Briefing generated and injected on every turn |
+| No audit trail of agent actions | Full audit log from session one |
+| Coordination overhead scales with team size | Coordination overhead falls as more agents publish context |
 
-Engineers keep using whichever Claude Code surface they already use — CLI, desktop app, VS Code extension, or web. Backyard is invisible infrastructure that makes their agents smarter about the team they're part of.
+---
+
+## How it works under the hood
+
+```
+                 ┌──────────── BACKYARD MCP SERVER ────────────┐
+                 │          (Python · FastAPI · asyncio)        │
+                 │                                              │
+                 │  ① MCP Hub          ② Shared Context Store  │
+                 │  ③ Signal Engine    ④ Project Briefing       │
+                 │  ⑤ Audit Log        ⑥ Conflict Surface       │
+                 └──────────────────────────────────────────────┘
+                       ▲               ▲               ▲
+                 MCP   │         MCP   │         MCP   │
+          ┌────────────┴──┐  ┌─────────┴──┐  ┌────────┴──────┐
+          │  Engineer A   │  │ Engineer B  │  │  Engineer C   │
+          │  Claude Code  │  │ Claude Code │  │  Claude Code  │
+          │  (any surface)│  │(any surface)│  │  (any surface)│
+          └───────────────┘  └─────────────┘  └───────────────┘
+
+                    Redis · Postgres
+```
+
+**Python, end to end.** FastAPI · asyncio · Redis (pub/sub, signals, hot state) · Postgres (contracts, ADRs, audit log) · `anthropic` SDK · `mcp` (official Python MCP SDK) · lightweight web dashboard.
+
+Full design: [Technical Report](docs/technical-report.md) · [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)
 
 ---
 
 ## Who this is for
 
-**Enterprise engineering teams** of 10–500+ engineers already using AI coding agents and hitting the ceiling: agents accelerate the individual but do nothing for the team's coordination overhead. The natural buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers**.
+**Enterprise engineering teams of 10–500+ engineers** already using Claude Code and hitting the coordination ceiling. AI has made individual engineers faster. It has done nothing for the team's coordination overhead. That gap is what Backyard closes.
+
+The buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers** who see their teams running agents in parallel and losing the speed gains to integration friction.
 
 ---
 
-## Tech stack
+## Build phases
 
-**Python, end to end.** [FastAPI](https://fastapi.tiangolo.com/) · `asyncio` · [Redis](https://redis.io/) (pub/sub, signals) · [Postgres](https://www.postgresql.org/) (context, audit) · [`anthropic`](https://github.com/anthropics/anthropic-sdk-python) · [`mcp`](https://modelcontextprotocol.io/) (official Python SDK) · lightweight web dashboard (presence, audit log).
-
----
-
-## Documents
-
-| Document | What's inside |
+| Phase | What ships |
 |---|---|
-| 📄 [**Technical Report**](docs/technical-report.md) | Full design of both problems — MCP coordination architecture (Problem 1) and live collaboration vision (Problem 2), with all five fatal risks mapped to mitigations. |
-| 🏗️ [**Architecture Reference**](docs/architecture.md) | Problem 1 component breakdown + data flows. |
-| 🗺️ [**Roadmap**](docs/roadmap.md) | Problem 1 build plan → Problem 2 vision. |
+| **1A — Core** | MCP server, shared context, signals, briefing, audit log. Engineers connect with one line. |
+| **1B — Visibility** | Web dashboard, conflict resolution UI, SSO/SAML, org admin, audit exports. |
+| **1C — Enterprise** | Private deployment, SOC 2 Type II, SCIM, CI/CD integration, data residency. |
 
-## Roadmap
+---
 
-- **Now — Problem 1:** MCP coordination server. Shared context, contracts, signals, audit. Engineers plug in with one line of config.
-- **Next — Problem 1 complete:** Web dashboard (presence, activity feed, conflict cards). Enterprise SSO, audit exports, org-wide admin.
-- **Later — Problem 2:** Cloud workspaces. Live shared codebase. Background agents. Real-time sync. No pull requests.
+## The longer vision
+
+There is a second, harder problem underneath this one: **there is no way for multiple engineers to contribute to one live codebase simultaneously.** Even with perfect shared context, engineers still work on separate local repos and merge through pull requests.
+
+The real end state is each engineer with their own background agent, all contributing to one shared live codebase in real time — no PRs, no merge step, no waiting. That requires cloud workspaces, CRDT-based file sync, and a different class of engineering. It is the right long-term answer.
+
+We solve Problem 1 first. Problem 1 is real, achievable now, and has no direct competitors. The team that wins Problem 1 earns the right — and the revenue — to build what comes next.
+
+---
 
 ## Status
 
-**Building Problem 1.** Design phase complete; implementation starting with the MCP coordination server.
+**Building Phase 1A.** Design complete. Implementation starting now.
 
-## Author & links
+---
 
-Created by **Madhusudhan Reddy**.
+## Author
 
-- 📣 **Announcement & white paper:** <https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/>
-- 💼 **LinkedIn:** [in/msreddygone](https://www.linkedin.com/in/msreddygone)
+Created by **Madhusudhan Reddy**
+
+- 📣 [White paper & announcement](https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/)
+- 💼 [linkedin.com/in/msreddygone](https://www.linkedin.com/in/msreddygone)
 
 ## License
 
-Released under the [MIT License](LICENSE).
+[MIT](LICENSE)
