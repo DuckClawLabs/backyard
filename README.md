@@ -9,9 +9,8 @@
 [![MCP](https://img.shields.io/badge/protocol-MCP-b4530f?style=flat-square)](docs/technical-report.md)
 [![Target](https://img.shields.io/badge/target-enterprise-1c1a17?style=flat-square)](#who-this-is-for)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-announcement-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/msreddygone)
 
-[**White Paper**](https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/) ·
 [**Technical Report**](docs/technical-report.md) ·
 [**Architecture**](docs/architecture.md) ·
 [**Roadmap**](docs/roadmap.md)
@@ -226,7 +225,6 @@ We solve Problem 1 first. Problem 1 is real, achievable now, and has no direct c
 
 Created by **Madhusudhan Reddy**
 
-- 📣 [White paper & announcement](https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/)
 - 💼 [linkedin.com/in/msreddygone](https://www.linkedin.com/in/msreddygone)
 
 ## License
