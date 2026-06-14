@@ -203,14 +203,16 @@ async def upsert_file_summary(
 
 
 async def get_file_summary(
-    db: AsyncSession, project_id: str, git_branch: str, path: str
+    db: AsyncSession, project_id: str, path: str
 ) -> FileSummary | None:
     result = await db.execute(
-        select(FileSummaryModel).where(
+        select(FileSummaryModel)
+        .where(
             FileSummaryModel.project_id == project_id,
-            FileSummaryModel.git_branch == git_branch,
             FileSummaryModel.path == path,
         )
+        .order_by(FileSummaryModel.last_modified_at.desc())
+        .limit(1)
     )
     row = result.scalar_one_or_none()
     return _file_summary_from_row(row) if row else None
@@ -232,7 +234,6 @@ def _file_summary_from_row(row: FileSummaryModel) -> FileSummary:
 async def search_context(
     db: AsyncSession,
     project_id: str,
-    git_branch: str = "",
     artifact_type: str | None = None,
     role: str | None = None,
     path_prefix: str | None = None,
@@ -269,7 +270,6 @@ async def search_context(
     if artifact_type in (None, "file_summary"):
         stmt = select(FileSummaryModel).where(
             FileSummaryModel.project_id == project_id,
-            FileSummaryModel.git_branch == git_branch,
         )
         if path_prefix:
             stmt = stmt.where(FileSummaryModel.path.startswith(path_prefix))

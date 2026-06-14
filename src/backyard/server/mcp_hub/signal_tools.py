@@ -27,11 +27,6 @@ TOOLS: list[Tool] = [
                 "topic": {"type": "string", "description": "Signal topic, e.g. 'user-api', 'auth-middleware'"},
                 "payload": {"type": "object", "description": "Optional structured data (e.g. contract id)"},
                 "message": {"type": "string", "description": "Human-readable status message"},
-                "scope": {
-                    "type": "string",
-                    "enum": ["branch", "project"],
-                    "description": "Signal scope: 'branch' (default, only unblocks waiters on the same git branch) or 'project' (unblocks all branches — use for infra milestones).",
-                },
             },
             "required": ["topic"],
         },
@@ -71,7 +66,6 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
             git_branch=auth.git_branch,
             payload=payload,
             message=message,
-            scope=args.get("scope", "branch"),
         )
         await record_activity(project_id, f"{auth.role} ({auth.engineer_name}): signaled '{topic}' ready")
         return f"Signal '{topic}' published (id: {signal.id})."
@@ -80,7 +74,7 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
         topic = args["topic"]
         timeout = int(args.get("timeout", 300))
 
-        result = await await_signal(db=db, project_id=project_id, topic=topic, git_branch=auth.git_branch, timeout=timeout)
+        result = await await_signal(db=db, project_id=project_id, topic=topic, timeout=timeout)
 
         if result.timed_out:
             return json.dumps({"timed_out": True, "topic": topic})

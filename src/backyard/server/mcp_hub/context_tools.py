@@ -80,7 +80,6 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
         results = await store.search_context(
             db,
             project_id=project_id,
-            git_branch=auth.git_branch,
             artifact_type=args.get("type"),
             role=args.get("role"),
             path_prefix=args.get("path_prefix"),
@@ -123,7 +122,7 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
 
     if name == "get_file_summary":
         path = args["path"]
-        summary = await store.get_file_summary(db, project_id=project_id, git_branch=auth.git_branch, path=path)
+        summary = await store.get_file_summary(db, project_id=project_id, path=path)
         if not summary:
             return f"No summary available for '{path}'. The file may not have been written through Backyard yet."
         return json.dumps({
