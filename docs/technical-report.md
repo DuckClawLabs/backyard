@@ -11,6 +11,7 @@ Version 1.0 · Stack: Python · Status: Design → Build
 1. [Executive Summary](#1-executive-summary)
 2. [The Problem](#2-the-problem)
 3. [The Solution](#3-the-solution)
+   - [3.4 Feature Walkthroughs](#34-feature-walkthroughs)
 4. [System Architecture](#4-system-architecture)
 5. [Component Designs](#5-component-designs)
 6. [MCP Tool Specifications](#6-mcp-tool-specifications)
@@ -146,6 +147,116 @@ From the moment an engineer's Claude Code connects, their agent has access to:
 - The **signal channel** — `wait_for_signal` and `signal_ready` work across all sessions on the
   project
 - The **conflict surface** — contradictory instructions are flagged immediately, not at PR review
+
+### 3.4 Feature walkthroughs
+
+#### The stand-up that never happens
+
+Agent B finishes implementing the user API. Instead of someone sending a Slack message to say "the
+API is ready", Agent B's agent publishes the contract and signals:
+
+```
+publish_context({ type: "contract", id: "user-api-v1",
+                  endpoints: [GET /api/users/:id → UserDTO {id, email, displayName}] })
+
+signal_ready("user-api")
+```
+
+Agent A was waiting:
+
+```
+wait_for_signal("user-api")
+→ resolves immediately with the contract payload
+→ Agent A calls query_shared_context({ type: "contract", id: "user-api-v1" })
+→ Agent A receives the full contract
+→ Agent A builds against the real API shape
+```
+
+The "is the API ready?" Slack message never gets sent. The stand-up item never gets added. Both
+agents proceed without any human acting as a messenger. See §7.1 for the full step-by-step flow.
+
+---
+
+#### The project briefing — every agent knows the state of the team
+
+At the start of every agent turn, before the engineer says anything, the briefing is injected
+automatically:
+
+```
+=== PROJECT BRIEFING ===
+Project: Acme Payments Service · Your role: Backend · Session time: 47m
+Active now: Frontend (Alice), Backend (you), Reviewer (Carol)
+
+Recent activity:
+· Frontend (Alice): completed UserCard component, calls GET /api/users/:id
+· Backend (you): implemented GET /api/users/:id, published contract user-api-v1
+
+Contracts published:
+· user-api-v1 — GET /api/users/:id → UserDTO {id, email, displayName}
+  (published by Backend, 12m ago)
+
+Architecture decisions:
+· ADR-001: Use Postgres for all persistent storage (decided by Alice + Bob, 2h ago)
+
+Open decisions: none
+=== END BRIEFING ===
+```
+
+No prompt engineering required. No engineer has to tell their agent what teammates are doing. The
+briefing is assembled fresh every turn from Redis (active sessions) and Postgres (contracts, ADRs,
+recent activity), kept under 2 000 tokens, and injected as an MCP resource automatically. See §5.4
+for the assembly algorithm.
+
+---
+
+#### The conflict surface — contradictions caught before they ship
+
+Two engineers give their agents contradictory instructions. Both agents call `raise_resolution`.
+Both engineers immediately see a resolution card on the dashboard:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CONFLICT — Database technology choice                  │
+│                                                         │
+│  Engineer A (Frontend) said: "use Postgres"             │
+│  Engineer B (Backend) said:  "use SQLite"               │
+│                                                         │
+│  Affected: db/**, infra/docker-compose.yml              │
+│                                                         │
+│  [Choose Postgres]  [Choose SQLite]  [Discuss first]    │
+│                                                         │
+│  Record this decision as an ADR? [Yes] [No]             │
+└─────────────────────────────────────────────────────────┘
+```
+
+Both agents are paused — they do not race ahead, they do not guess which instruction takes priority.
+The engineers decide together in 60 seconds because they are working at the same time. If they
+choose "Record as ADR", the decision is added to every subsequent briefing and no agent can
+contradict it without triggering another resolution card. See §5.6 and §7.2 for full detail.
+
+---
+
+#### The role system — agents know their domain
+
+Each engineer sets a role in `.backyard-mcp/me.yaml`. The role sets the agent's default domain
+(the files it can write without asking) and which coordination tools it has access to.
+
+If an agent needs to write a file outside its domain — say, the Frontend agent needs to update an
+API response format — the MCP Hub automatically calls `propose_cross_domain_edit`. The Backend
+engineer sees the request on the dashboard and approves or redirects it. The agent does not just
+get blocked; it asks, visibly, and the work continues after a fast approval.
+
+---
+
+#### The audit log — from session one
+
+Every agent action is logged to Postgres: tool name, arguments, result summary, latency, and a
+row-level checksum. The audit log is always on, append-only, and cannot be disabled. Engineers see
+their own activity in the dashboard. Engineering managers see the team's activity. Admins can
+export the full log as CSV or JSON.
+
+This is not a Phase 3 compliance feature. It is on from the first commit, because enterprise
+procurement requires it before a team can put Backyard on a codebase that matters.
 
 ---
 

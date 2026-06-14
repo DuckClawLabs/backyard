@@ -13,6 +13,7 @@
 
 [**Technical Report**](docs/technical-report.md) ·
 [**Architecture**](docs/architecture.md) ·
+[**Deployment**](docs/deployment.md) ·
 [**Roadmap**](docs/roadmap.md)
 
 </div>
@@ -63,7 +64,10 @@ Backyard is an **MCP coordination server**. Every engineer points their Claude C
 // .claude/settings.json  (one-time addition per engineer)
 {
   "mcpServers": {
-    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
+    "backyard": {
+      "url": "https://backyard.yourcompany.com/mcp",
+      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+    }
   }
 }
 ```
@@ -74,76 +78,17 @@ That is the entire setup. No new tool to install. No workflow to change. Enginee
 
 ## What every agent gets
 
-### Shared contracts — the stand-up that never happens
+**Shared contracts.** Agent B publishes the API contract and signals `signal_ready("user-api")`. Agent A's pending `wait_for_signal` resolves immediately with the contract. The "is it ready?" Slack message never gets sent.
 
-Agent B finishes the user API. It publishes the contract and signals:
+**Project briefing.** At the start of every agent turn, the briefing is injected automatically — who's active, what's been published, what decisions are open. Always current, always under 2 000 tokens, zero prompt engineering required.
 
-```
-publish_context({ type: "contract", id: "user-api-v1",
-                  endpoints: [GET /api/users/:id → UserDTO] })
-signal_ready("user-api")
-```
+**Conflict surface.** Two agents receive contradictory instructions. Both pause. Both engineers see a resolution card. They decide together in 60 seconds — because they are both working right now. The decision becomes an ADR that every future agent turn respects.
 
-Agent A was waiting:
+**Role system.** Each engineer sets a role (Frontend / Backend / DevOps / Reviewer). The agent knows its domain. Out-of-domain writes are queued and visible for the owning engineer to approve — not silently blocked, not silently applied.
 
-```
-wait_for_signal("user-api")
-→ resolves immediately with the contract
-→ Agent A builds against the real shape
-```
+**Full audit log.** Every agent action logged from session one: `(engineer, role, timestamp, tool, result)`. Always on, cannot be disabled. Exportable as CSV or JSON. Enterprise procurement requires this from day one, so it is built in from day one.
 
-The "is the API ready?" Slack message never gets sent. The stand-up never happens.
-
----
-
-### Project briefing — every agent knows the state of the team
-
-At the start of every agent turn, the briefing is injected automatically:
-
-```
-=== PROJECT BRIEFING ===
-Active: Frontend (A), Backend (B), Reviewer (C)
-Recent: B published user-api-v1 · A completed UserCard component
-Contracts: user-api-v1 → GET /api/users/:id → UserDTO {id, email, displayName}
-Decisions: ADR-001: Use Postgres for all persistence (decided 2h ago)
-Open decisions: none
-=== END BRIEFING ===
-```
-
-No prompt engineering required. No engineer has to tell their agent what teammates are doing. The briefing is always current, always under 2 000 tokens, and always injected — every single turn.
-
----
-
-### Conflict surface — contradictions caught before they ship
-
-Two agents receive contradictory instructions. Both call `raise_resolution`. Both engineers immediately see a resolution card on the dashboard:
-
-```
-CONFLICT — Database technology
-  Engineer A said: use Postgres
-  Engineer B said: use SQLite
-  Affected: db/**, infra/docker-compose.yml
-  [Choose Postgres]  [Choose SQLite]  [Discuss first]
-  Record as ADR? [Yes] [No]
-```
-
-The agents are paused. The engineers decide together — in 60 seconds, because they are right here, working at the same time. The decision is recorded as an ADR and injected into every subsequent briefing. No agent proceeds until engineers choose.
-
----
-
-### Role system — agents know their domain
-
-Each engineer sets a role: **Frontend**, **Backend**, **DevOps**, **Reviewer**. The agent knows its default domain. If it needs to touch another role's files, it asks first — visibly, through the dashboard — instead of stepping on someone else's work silently.
-
-Custom roles can be defined in `backyard.toml` for teams with non-standard structures.
-
----
-
-### Full audit log — from day one
-
-Every agent action is logged: `(engineer, role, session, timestamp, tool, result)`. Always on, cannot be disabled. Filterable by engineer, session, and time range. Exportable as CSV or JSON.
-
-This is not a phase-3 compliance feature. It is on from the first line of code, because enterprise procurement requires it from day one.
+See [**Technical Report §3.4**](docs/technical-report.md#34-feature-walkthroughs) for annotated code flows for each of these.
 
 ---
 
@@ -183,7 +128,7 @@ This is not a phase-3 compliance feature. It is on from the first line of code, 
 
 **Python, end to end.** FastAPI · asyncio · Redis (pub/sub, signals, hot state) · Postgres (contracts, ADRs, audit log) · `anthropic` SDK · `mcp` (official Python MCP SDK) · lightweight web dashboard.
 
-Full design: [Technical Report](docs/technical-report.md) · [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)
+Full design: [Technical Report](docs/technical-report.md) · [Architecture](docs/architecture.md) · [Deployment](docs/deployment.md) · [Roadmap](docs/roadmap.md)
 
 ---
 
@@ -199,142 +144,13 @@ The buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers** wh
 
 Backyard runs as a single server (FastAPI + Redis + Postgres). Three ways to deploy:
 
----
+| Option | Best for | Setup |
+|---|---|---|
+| **Hosted** | Teams that want zero ops | Get URL + API key at [backyard.app](https://backyard.app) *(coming soon)* |
+| **Railway** | Teams that want their own infra without managing servers | Fork repo → deploy on Railway → 5 minutes |
+| **Self-hosted** | Data residency, private networking, compliance requirements | `docker-compose -f infra/docker-compose.prod.yml up -d` |
 
-### Option 1 — Use the hosted version *(fastest)*
-
-No setup. Add one line to `.claude/settings.json` and you're done.
-
-```json
-{
-  "mcpServers": {
-    "backyard": {
-      "url": "https://backyard.yourcompany.com/project/YOUR_PROJECT_ID",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
-  }
-}
-```
-
-Get a project URL and API key at [backyard.app](https://backyard.app) *(coming soon)*.
-
----
-
-### Option 2 — Deploy on Railway *(5 minutes, free tier works)*
-
-Best for teams that want their data on their own infrastructure without managing servers.
-
-**Step 1 — Push to GitHub** (fork or clone this repo)
-
-**Step 2 — Deploy on Railway**
-1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub**
-2. Select your repo
-3. Railway auto-detects the `Dockerfile` and deploys
-
-**Step 3 — Add services**
-In your Railway project, click **+ New** and add:
-- **Redis** → select the Redis template
-- **PostgreSQL** → select the Postgres template
-
-Railway auto-injects `REDIS_URL` and `DATABASE_URL` — no manual wiring needed.
-
-**Step 4 — Set environment variables**
-In Railway → your app service → **Variables**:
-
-```
-ANTHROPIC_API_KEY   =  sk-ant-...
-API_KEYS            =  key-alice,key-bob,key-carol
-BASE_URL            =  https://your-app.up.railway.app
-LOG_LEVEL           =  INFO
-```
-
-Railway gives you a URL like `https://your-app.up.railway.app`.
-
-**Step 5 — Run migrations**
-```bash
-railway run alembic upgrade head
-```
-
-**Step 6 — Engineers add one line to their Claude Code settings**
-```json
-{
-  "mcpServers": {
-    "backyard": {
-      "url": "https://your-app.up.railway.app/project/YOUR_PROJECT_ID",
-      "headers": { "Authorization": "Bearer key-alice" }
-    }
-  }
-}
-```
-
-Done. The whole team is connected.
-
----
-
-### Option 3 — Self-hosted on your own server *(enterprise)*
-
-For teams that need data residency, private networking, or compliance controls.
-
-**Requirements:** a Linux server with Docker and Docker Compose installed.
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/DuckClawLabs/backyard.git
-cd backyard
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — set ANTHROPIC_API_KEY, API_KEYS, BASE_URL, POSTGRES_PASSWORD
-
-# 3. Start all services (app + Postgres + Redis)
-docker-compose -f infra/docker-compose.prod.yml up -d
-
-# 4. Run database migrations
-docker-compose -f infra/docker-compose.prod.yml exec app alembic upgrade head
-
-# 5. (Optional) Put nginx in front for HTTPS
-# Point your domain at the server; configure a reverse proxy to localhost:8000
-```
-
-The server is now running at `http://your-server:8000`.
-
-**Engineers connect:**
-```json
-{
-  "mcpServers": {
-    "backyard": {
-      "url": "https://your-internal-domain.com/project/YOUR_PROJECT_ID",
-      "headers": { "Authorization": "Bearer key-alice" }
-    }
-  }
-}
-```
-
-For SSO/SAML, SCIM provisioning, and SOC 2 audit controls — see the [Enterprise section](docs/roadmap.md) of the roadmap.
-
----
-
-### Local development
-
-```bash
-# Clone and install
-git clone https://github.com/DuckClawLabs/backyard.git
-cd backyard
-pip install uv
-uv pip install -e ".[dev]"
-
-# Copy and fill env
-cp .env.example .env
-
-# Start Redis + Postgres + app (with live reload)
-docker-compose -f infra/docker-compose.yml up
-
-# Apply migrations
-alembic upgrade head
-
-# Run tests
-pytest
-```
+Full instructions for all three options, including engineer setup, environment variables, nginx config, and update procedures: **[docs/deployment.md](docs/deployment.md)**
 
 ---
 
