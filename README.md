@@ -2,14 +2,11 @@
 
 # 🌳 Backyard
 
-### Multi-Human, Multi-Agent Collaborative Coding for Engineering Teams
+### Multi-Agent Coordination for Engineering Teams
 
-**One live shared project. An entire engineering team contributing at once. An AI agent at every seat.**
-
-[![Status](https://img.shields.io/badge/status-design-orange?style=flat-square)](docs/technical-report.md)
+[![Status](https://img.shields.io/badge/status-building-orange?style=flat-square)](docs/technical-report.md)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
-[![Real-time](https://img.shields.io/badge/realtime-CRDT-8a3e0a?style=flat-square)](docs/architecture.md)
-[![Agents](https://img.shields.io/badge/agents-Claude%20%C2%B7%20MCP-b4530f?style=flat-square)](docs/technical-report.md#9-inter-agent-protocol-mcp)
+[![MCP](https://img.shields.io/badge/protocol-MCP-b4530f?style=flat-square)](docs/technical-report.md)
 [![Target](https://img.shields.io/badge/target-enterprise-1c1a17?style=flat-square)](#who-this-is-for)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-announcement-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/feed/update/urn:li:activity:7471568927584567296/)
@@ -24,145 +21,96 @@
 ---
 
 > **Backyard is a team coordination layer that wraps Claude Code for enterprise engineering teams.**
-> Each engineer connects their existing Claude Code to one shared live project — their agent works in the background, and every change appears for the whole team in real time, no pull requests needed.
-> When two agents collide on the same code, the conflict surfaces to the engineers involved and they choose between themselves.
+> Each engineer connects their existing Claude Code to one shared project — their agent has full shared context of what every other agent on the team is doing, in real time.
+> When agents make contradictory decisions or collide on the same code, the conflict surfaces to the engineers involved and they choose between themselves.
 
 ---
 
-Enterprise engineering teams run into the same wall: every AI coding agent assumes **one developer per
-session**, but your team has dozens of engineers, multiple time zones, large codebases, compliance
-requirements, and handoffs that bleed hours every day. AI hasn't changed how teams collaborate — only
-how fast individuals work alone.
+## Two problems. One product.
 
-**Backyard** changes the team model:
+### Problem 1 — Agents on the same team are completely blind to each other ← *we are building this now*
 
-> Each engineer logs into the platform and gets their own private session with their own **background AI
-> agent**. All of those sessions contribute to **one live shared project at the same time.** Every
-> engineer's edits — and every agent's edits — appear live for the entire team. No pull requests, no
-> merge latency. When changes conflict, the collision is surfaced to the engineers involved and they
-> **choose between themselves.** The audit trail records everything.
+Every team using Claude Code today has this problem. Each agent knows only what its own engineer has told it. There is no shared state between sessions.
 
-## Contents
+- Agent A writes an integration for an API that Agent B hasn't shipped yet — wrong assumptions baked in silently
+- Agent B makes a breaking change — Agent A's agent doesn't know for hours
+- Two agents make contradictory architecture decisions independently — nobody finds out until PR review
+- Agent A needs to know if the auth middleware is ready — only a Slack message can answer it, not an agent
 
-- [Who this is for](#who-this-is-for)
-- [The problem at enterprise scale](#the-problem-at-enterprise-scale)
-- [The shape](#the-shape)
-- [How it works](#how-it-works)
-- [Tech stack](#tech-stack)
-- [Documentation](#documentation)
-- [Roadmap](#roadmap)
-- [Status](#status)
-- [Author & links](#author--links)
-- [License](#license)
+**No tool solves this today.** You can put shared context in a `CLAUDE.md` file — but it's manual, asynchronous, and agents don't get notified when it changes.
 
-## A team wrapper for Claude Code — not a replacement
-
-**Backyard is a coordination wrapper that makes Claude Code work for teams.** Engineers keep using
-whatever Claude Code surface they already use — CLI, desktop app, VS Code extension, or web. They add
-one line to their settings and connect to a Backyard project. Every Claude Code capability they have
-today still works; Backyard adds the team layer on top:
+Backyard fixes it with an **MCP coordination server**: a shared brain all agents on the team connect to. Every agent knows what contracts have been published, what decisions have been made, what each teammate's agent is working on — in real time, automatically, without any human manually updating a doc.
 
 ```json
 // .claude/settings.json  (one-time setup per engineer)
-{ "mcpServers": { "backyard": { "url": "https://backyard.yourcompany.com/project/abc" } } }
+{
+  "mcpServers": {
+    "backyard": { "url": "https://backyard.yourcompany.com/project/abc" }
+  }
+}
 ```
 
-| Feature | Claude Code (solo) | Backyard (team) |
+That one line gives every agent on the team a shared brain. No new tool to install. No workflow to change. Engineers keep using Claude Code exactly as they do today.
 
-| Feature | Claude Code | Backyard |
-|---|---|---|
-| File read / edit / write | ✓ solo | ✓ streams live to all teammates |
-| Shell / bash execution | ✓ solo | ✓ output visible to all (attributed in audit log) |
-| Git operations | ✓ solo | ✓ plus team-level attributed snapshots |
-| MCP tool use | ✓ per session | ✓ plus shared MCP Hub with team-coordination tools |
-| Multi-step agent loops | ✓ solo | ✓ agent output streams to all sessions in real time |
-| CLAUDE.md project context | ✓ solo | ✓ shared project-level CLAUDE.md across all agents |
-| Permission model | ✓ per engineer | ✓ plus org-level role-based capability enforcement |
-| Sessions | 1 human per session | N engineers, each with their own session + agent, one live project |
+---
 
-An engineer in Backyard should be at least as capable as one using Claude Code alone — and additionally
-able to see, coordinate with, and build on what their teammates' agents are doing in real time.
+### Problem 2 — There is no way for multiple engineers to contribute to one live codebase simultaneously ← *the bigger vision*
+
+The pull-request model was designed for humans working in isolation, asynchronously. AI agents inherited it unquestioned. The result: even with AI, teams still wait on PRs, lose context at every handoff, and burn the first hour of every cross-timezone session re-explaining what happened.
+
+The real vision: **each engineer logs into a shared project, gets their own background AI agent, and every agent's edits appear live for the whole team — no PRs, no merge step, no waiting.**
+
+This requires cloud workspaces, real-time sync infrastructure, and a different class of engineering. It is the right long-term answer. It is not where we start.
+
+**We solve Problem 1 first.** Problem 1 is real, achievable now, and has no direct competitors. The team that wins Problem 1 earns the right to build Problem 2.
+
+---
+
+## What we're building (Problem 1)
+
+An **MCP coordination server** that every engineer's Claude Code connects to. It gives every agent on the team:
+
+| What agents get | How |
+|---|---|
+| **Shared project context** | Architecture decisions, active work, what's in progress — always current |
+| **Published contracts** | Agent B publishes the API schema → Agent A's agent gets it immediately, no Slack needed |
+| **Real-time signals** | `signal_ready("auth-middleware")` → Agent A unblocks automatically |
+| **Team activity feed** | What each agent has done in the last hour, visible to all |
+| **Full audit log** | Every agent action logged with `(engineer, role, timestamp)` for compliance |
+
+Engineers keep using whichever Claude Code surface they already use — CLI, desktop app, VS Code extension, or web. Backyard is invisible infrastructure that makes their agents smarter about the team they're part of.
+
+---
 
 ## Who this is for
 
-**Backyard is built for engineering organizations** — teams of 10 to 500+ engineers working on shared
-codebases, across time zones, with compliance and audit requirements. It is not a tool for individual
-developers.
+**Enterprise engineering teams** of 10–500+ engineers already using AI coding agents and hitting the ceiling: agents accelerate the individual but do nothing for the team's coordination overhead. The natural buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers**.
 
-The natural buyers are **CTOs**, **VPs of Engineering**, and **Engineering Managers** who are already
-rolling out AI coding agents and hitting the ceiling: agents accelerate the individual but don't touch
-the team's coordination overhead.
-
-## The problem at enterprise scale
-
-| Problem | Today | With Backyard |
-|---|---|---|
-| Cross-timezone handoff | First hour re-explaining context | Session state preserved; agent briefs the incoming engineer |
-| PR review latency | Hours to days waiting | Conflicts surface in real time; resolved in seconds |
-| Context lost in diffs | Reviewer sees code, not reasoning | Reviewer watches the agent's reasoning as it happens |
-| Mentorship | Scheduled pairing sessions | Senior watches junior's agent work live; intervenes immediately |
-| Audit & compliance | Reconstructed from git blame | Every agent action logged with `(engineer, agent, timestamp, session)` |
-| Org-wide AI policy | Per-developer settings | Role-based capabilities and cross-team controls set at the org level |
-
-## The shape
-
-```
-                  ┌──────── ONE LIVE PROJECT (CRDT) ────────┐
-                  │           the shared codebase           │
-                  └──────────────────────────────────────────┘
-                     ▲           ▲           ▲           ▲
-               Session A    Session B    Session C    Session D
-              (engineer + agent, private — each edits the live project)
-```
-
-- **Project** — the shared, live codebase. The unit the whole team collaborates on.
-- **Session** — one engineer's private workspace: their chat, context, and **background agent**. You
-  see colleagues' *edits and cursors* in the shared project, never their private conversation.
-
-## How it works
-
-| Piece | What it does |
-|---|---|
-| **Live sync (CRDT)** | All engineers' edits — and their agents' edits — converge into one project, lossless, no merge step, no lock. |
-| **Two-layer conflicts** | Text **auto-converges**. Only *semantic* conflicts (code that merged cleanly but is broken or contradictory) **surface to the engineers involved** to resolve together. No silent "higher-rank wins." |
-| **Background agents** | One per session, wrapping the Anthropic API; their edits stream into the live project like a fast collaborator, fully attributed. |
-| **Presence** | Live indicators of who — and which agent — is editing what, so most collisions never happen. |
-| **Roles** | Frontend / Backend / DevOps / Reviewer — with org-configurable domain boundaries. Roles route work; they don't silently block collaboration. |
-| **Shared context** | Agents exchange structured contracts, ADRs, and file summaries — never raw chat — so context windows and API costs stay bounded. |
-| **Full audit log** | Every agent action is logged with `(engineer, role, agent-turn, timestamp)` for compliance, incident review, and attribution. |
-
-> **The one question the pilot answers:** *Does a team with Backyard ship a feature faster than the same
-> team working on separate agent sessions and merging via pull requests?*
+---
 
 ## Tech stack
 
-**Python, end to end.** [FastAPI](https://fastapi.tiangolo.com/) · `asyncio` ·
-[`pycrdt`](https://github.com/jupyter-server/pycrdt) (Yjs-compatible real-time sync) ·
-[Redis](https://redis.io/) (presence / pub-sub) · [Postgres](https://www.postgresql.org/) ·
-[`anthropic`](https://github.com/anthropics/anthropic-sdk-python) ·
-[`mcp`](https://modelcontextprotocol.io/) · [Textual](https://textual.textualize.io/) (terminal client).
+**Python, end to end.** [FastAPI](https://fastapi.tiangolo.com/) · `asyncio` · [Redis](https://redis.io/) (pub/sub, signals) · [Postgres](https://www.postgresql.org/) (context, audit) · [`anthropic`](https://github.com/anthropics/anthropic-sdk-python) · [`mcp`](https://modelcontextprotocol.io/) (official Python SDK) · lightweight web dashboard (presence, audit log).
 
-The CRDT backend is Yjs-wire-compatible, so a future visual web editor is a thin client over the *same
-Python server*.
+---
 
-## Documentation
+## Documents
 
 | Document | What's inside |
 |---|---|
-| 📄 [**Technical Report**](docs/technical-report.md) | Full design — architecture, data flow, conflict engine, trust model, roles, MCP protocol, enterprise pilot, Python stack, and the five fatal risks mapped to mitigations. |
-| 🏗️ [**Architecture Reference**](docs/architecture.md) | Condensed components + data flows. |
-| 🗺️ [**Roadmap**](docs/roadmap.md) | Pilot (4 weeks) → platform (3 months) → enterprise GA (6 months). |
+| 📄 [**Technical Report**](docs/technical-report.md) | Full design of both problems — MCP coordination architecture (Problem 1) and live collaboration vision (Problem 2), with all five fatal risks mapped to mitigations. |
+| 🏗️ [**Architecture Reference**](docs/architecture.md) | Problem 1 component breakdown + data flows. |
+| 🗺️ [**Roadmap**](docs/roadmap.md) | Problem 1 build plan → Problem 2 vision. |
 
 ## Roadmap
 
-- **Phase 1 — Pilot (4 weeks):** 2 engineers, 2 sessions, 2 background agents, 1 live project. Prove it reduces team coordination overhead vs. PRs. SSO and audit logging from day one.
-- **Phase 2 — Platform (3 months):** All roles, web editor with live cursors, org-wide admin controls, CI/CD hooks, compliance reporting, closed enterprise beta.
-- **Phase 3 — Enterprise GA (6 months):** Private-cloud / on-premise deployment, Kubernetes isolation, SOC 2, SCIM provisioning, issue-tracker integration, GA + enterprise pricing.
+- **Now — Problem 1:** MCP coordination server. Shared context, contracts, signals, audit. Engineers plug in with one line of config.
+- **Next — Problem 1 complete:** Web dashboard (presence, activity feed, conflict cards). Enterprise SSO, audit exports, org-wide admin.
+- **Later — Problem 2:** Cloud workspaces. Live shared codebase. Background agents. Real-time sync. No pull requests.
 
 ## Status
 
-**Design phase.** This repository holds the technical report and architecture — the blueprint.
-Implementation begins with the real-time sync core. No application code yet.
+**Building Problem 1.** Design phase complete; implementation starting with the MCP coordination server.
 
 ## Author & links
 

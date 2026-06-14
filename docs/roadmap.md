@@ -1,90 +1,74 @@
 # Backyard — Roadmap
 
-**Enterprise engineering teams.** Each engineer with their own background AI agent. One live shared
-project. Full detail in [`technical-report.md`](./technical-report.md).
+Two problems. One product. We build Problem 1 first.
 
 ---
 
-## Phase 1 — Pilot (4 weeks): *Does it reduce team coordination overhead?*
+## Problem 1 — MCP Coordination ← building now
 
-**Scope:** 2 engineers from a real enterprise team → **2 separate sessions**, each with **1 background
-agent**, editing **1 live shared project** (CRDT) with presence, audit logging, and semantic-conflict
-surfacing. Frontend + Backend roles. Nothing else.
+**The problem:** agents on the same engineering team are completely blind to each other.
+Every Claude Code session is isolated. No shared context, no signals, no awareness of what teammates' agents are doing.
 
-The pilot must involve a **real enterprise engineering team** — not two individuals. Realistic
-conditions are the point: actual codebase, actual coordination overhead, a stakeholder who can validate
-whether the result matters to the business.
+**The solution:** an MCP coordination server every engineer's Claude Code connects to with one line of config — giving every agent a shared brain.
 
-Engineers connect their **existing Claude Code setup** (CLI, desktop, VS Code, or web) to the Backyard
-MCP server via a one-line config — no new client to install.
+### Phase 1A — Core coordination server
 
-```json
-{ "mcpServers": { "backyard": { "url": "https://backyard.co/project/abc" } } }
-```
-
-| Week | Deliverable |
+| What | Description |
 |---|---|
-| 1 — MCP server + live core | FastAPI server; MCP endpoint serving standard file tools (read, edit, list, shell, git) + project registry; **`pycrdt` live-sync** so two sessions share one project; presence; **full audit log from day one**. |
-| 2 — Team tools + agents | MCP team-coordination tools (`publish_context`, `signal_ready`, `wait_for_signal`, `raise_resolution`); Agent Gateway routing MCP calls through the CRDT; project-briefing injection; role capability enforcement. |
-| 3 — Conflicts + dashboard | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; lightweight web dashboard (presence, conflict cards, audit log). |
-| 4 — Context + measure | Shared context store; attributed git snapshots; session export; **run the pilot experiment**. |
+| **MCP server** | Serves both standard file tools and team-coordination tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`, `raise_resolution`) |
+| **Shared context store** | Postgres-backed store of contracts, architecture decisions (ADRs), and auto-generated file summaries — always current, always available to every agent |
+| **Real-time signals** | Redis pub/sub: `signal_ready("auth-api")` → waiting agents unblock immediately, no Slack message needed |
+| **Audit log** | Every agent action logged with `(engineer, role, timestamp, session)` from day one |
+| **Project briefing** | Auto-injected into each agent turn: who's working on what, recent activity, published contracts, open decisions |
 
-**The experiment:** two engineers build the same well-defined feature in Backyard vs. their current
-PR-based workflow. Measure wall-clock, idle time, defects at first integration, and — critically — the
-Engineering Manager's answer to "would you run the next sprint this way?"
+**How engineers connect:** add one line to `.claude/settings.json`. Works from Claude Code CLI, desktop, VS Code, or web — no new tool to install.
 
-| Outcome | Reading |
+### Phase 1B — Visibility and enterprise controls
+
+| What | Description |
 |---|---|
-| Measurably faster, less idle | thesis supported; present to engineering leadership; proceed to Phase 2 |
-| No difference | inconclusive — find where overhead stayed; iterate or stop |
-| Slower / more friction | disconfirmed cheaply — four weeks, not a company |
+| **Web dashboard** | Presence (who's active, what their agent is doing), team activity feed, audit log viewer |
+| **Conflict resolution UI** | When two agents make contradictory decisions, surface a resolution card to the involved engineers |
+| **SSO / SAML** | Enterprise login — non-negotiable for most corporate procurement |
+| **Org-wide admin** | User management, role assignments, usage and cost reporting per engineer |
+| **Compliance exports** | Audit log as CSV/JSON, filterable by engineer / session / time range |
+
+### Phase 1C — Enterprise hardening
+
+| What | Description |
+|---|---|
+| **Private deployment** | Self-hosted on the customer's cloud — required for financial services, healthcare, defense |
+| **SOC 2 Type II** | Security certification required by enterprise procurement |
+| **SCIM provisioning** | Auto-sync engineers from Okta / Azure AD |
+| **CI/CD integration** | Failing test or deploy → notification surfaced into the shared project context |
 
 ---
 
-## Phase 2 — Platform (3 months): *Is it ready for the enterprise?*
+## Problem 2 — Live Collaboration ← the bigger vision
 
-- All roles: DevOps, Reviewer; org-configurable domain schemas.
-- **Web editor** with live cursors (thin Yjs client over the same Python backend).
-- **Org-wide admin dashboard**: user management, role assignments, usage and cost reporting.
-- **SSO/SAML** — moved to Phase 2, not Phase 3. This is a non-negotiable enterprise requirement for any
-  security-conscious organization.
-- Compliance audit log exports (CSV/JSON, filterable by engineer, session, time range).
-- CI/CD hooks — failing test notification surfaced live into the project.
-- AST-level merge suggestions for incompatible units (not just surface-and-pick).
-- Session reconnect without losing agent context.
-- RBAC: invite links per role, org-level permissions.
-- Load test to ~20 concurrent sessions.
-- **Closed enterprise beta:** 3–5 enterprise customers running full sprints.
+**The problem:** there is no way for multiple engineers to contribute to one live codebase simultaneously.
+The pull-request model was designed for isolated humans working asynchronously. AI agents inherited it unquestioned.
 
----
+**The vision:** each engineer logs into a shared project and gets their own background AI agent. Every agent's edits appear live for the whole team — no PRs, no merge step, no waiting. Conflicts surface to the engineers involved in real time.
 
-## Phase 3 — Enterprise GA (6 months): *Is it deployable everywhere?*
+This requires:
+- **Cloud workspaces** — Backyard provisions a container per engineer; all containers share the codebase
+- **Real-time sync** — CRDT-based file sync across all containers (`pycrdt`, Yjs-wire-compatible)
+- **Background agents** — a server-side agent loop per engineer, running autonomously against the Anthropic API
+- **Semantic conflict detection** — AST-aware detection of logically incompatible edits, not just text conflicts
+- **Shared resolution UI** — live conflict cards surfaced to the involved engineers
 
-- **Private-cloud and on-premise deployment** — non-negotiable for financial services, healthcare, and
-  defense customers; moved forward, not a Phase-3 afterthought.
-- Kubernetes session isolation per org.
-- **SOC 2 Type II** certification.
-- **SCIM provisioning** (auto-sync engineers from Okta/Azure AD).
-- Custom data-retention and deletion policy per org.
-- Role-template marketplace: community-defined role schemas for common team structures.
-- **Async mode:** agent works while an engineer is in a different time zone; full session briefing on
-  return.
-- Issue-tracker integration (Linear, Jira) → live project workflow.
-- GA with enterprise pricing (§15 of the technical report).
+**This is a 1–2 year build and a different class of engineering.** We earn the right to build it by winning Problem 1 first.
+
+### Why Problem 1 comes first
+
+- Problem 1 is real, achievable now, and has no direct competitors
+- Problem 1 can be shipped to enterprise teams already using Claude Code — today
+- Problem 1 validates the market before we commit to cloud infrastructure
+- The team that wins Problem 1 has the relationships, trust, and revenue to fund Problem 2
 
 ---
 
-## Enterprise feature priority rationale
+## One-line summary
 
-Features that were Phase 3 in a consumer product are Phase 1/2 here because enterprise buyers evaluate
-on compliance, security, and control — not feature count. A CTO who can't check "SSO" and "audit log"
-off a vendor security questionnaire will not adopt the product regardless of how well the collaboration
-works. These are gates, not nice-to-haves.
-
-| Feature | Consumer product phase | Backyard phase |
-|---|---|---|
-| Full audit log | Phase 3 | **Phase 1** (day one) |
-| SSO/SAML | Phase 3 | **Phase 2** |
-| Compliance export | Phase 3 | **Phase 2** |
-| Private/on-premise deploy | Phase 3 | **Phase 3** (but designed for from day one) |
-| SCIM provisioning | Phase 3 | **Phase 3** |
+> Build the shared brain first. Then build the shared workspace.
