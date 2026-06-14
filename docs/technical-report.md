@@ -115,19 +115,22 @@ compile or that is logically contradictory. So Backyard needs **two layers** (se
 ## 2. Design Principles
 
 1. **The project is the shared object; sessions are private.** History and presence hang off the
-   **project**; chat, context, and agent state hang off each human's **session**.
+   **project**; chat, context, and agent state hang off each engineer's **session**.
 2. **Always-merged, never-blocked.** Real-time convergence means there is no merge step and no file you
    must wait for. Editing is live.
 3. **Auto-merge the text, surface the meaning.** Text-level collisions converge automatically; only
-   *semantic* conflicts interrupt a human — and then only the humans actually involved.
+   *semantic* conflicts interrupt an engineer — and then only the engineers actually involved.
 4. **Conflicts are resolved socially.** When a real conflict surfaces, it goes to a **shared resolution
-   view** the involved humans both see, and they decide together. The system never silently picks a
+   view** the involved engineers both see, and they decide together. The system never silently picks a
    winner by rank.
 5. **Agents coordinate through the project, not through each other's minds.** No agent reads another
    session's conversation. They share the **live code** plus **structured artifacts** (contracts, ADRs,
    file summaries). Context windows and cost stay bounded.
-6. **Falsifiable before fancy.** Build the cheapest thing that proves two people + two background agents
-   on one live project beat two people merging via PRs.
+6. **Build no client — ride Claude Code's.** Backyard is an MCP server. Engineers connect their
+   existing Claude Code surface (CLI, desktop, VS Code, web) to it. Every new Claude Code client
+   Anthropic ships automatically becomes a Backyard client. Zero client code owned.
+7. **Falsifiable before fancy.** Build the cheapest thing that proves two engineers + two background
+   agents on one live project beat two engineers merging via PRs.
 
 ---
 
@@ -186,15 +189,45 @@ pub/sub fan-out to all sessions.
 with per-change attribution `(session, human, agent)`. Git is the durable history and the export, not
 the live working mechanism.
 
-### 3.2 Why this shape
+### 3.2 The client model — zero client code in Phase 1
 
-- Making the **project** the top-level object is what removes the white paper's load-bearing
-  "single-principal assumption": presence, history, and context key off the project; many sessions
-  attach to it.
-- A **CRDT** is the right primitive because it guarantees convergence without a central lock, and —
-  crucially for a Python team — **`pycrdt` speaks the Yjs wire protocol**, so the Python server
-  interoperates natively with a future web editor. The backend stays Python end-to-end; an eventual
-  visual editor is a thin client.
+Backyard's coordination server exposes itself as an **MCP server**. Engineers connect their existing
+Claude Code setup to it with a one-line config:
+
+```json
+// .claude/settings.json  (each engineer adds this once)
+{
+  "mcpServers": {
+    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
+  }
+}
+```
+
+This works from **every Claude Code surface without modification**: CLI (`claude`), desktop app
+(Mac/Windows), VS Code extension, and web (`claude.ai/code`). Engineers keep using whatever they
+already use. Backyard gains every new Claude Code client Anthropic ships for free.
+
+The coordination server exposes two distinct layers over MCP:
+- **Standard file/tool access** (same as Claude Code's built-in tools) — so the agent can still
+  edit files, run shell commands, and use git, all routed through the workspace.
+- **Team-coordination tools** (`publish_context`, `signal_ready`, `wait_for_signal`,
+  `raise_resolution`, `get_project_status`) — the new primitives that make multi-engineer
+  collaboration work.
+
+The **only new UI built in Phase 1** is a lightweight **web dashboard** for the things that need a
+visual surface: presence (who's editing what), conflict resolution cards (side-by-side diff, choose),
+and the audit log. This is a single-page app served by the same FastAPI server.
+
+**Phase 2** adds a full web IDE (Monaco editor with live cursors, the true real-time editing view).
+
+### 3.3 Why this shape
+
+- Making the **project** the top-level object removes the white paper's load-bearing "single-principal
+  assumption": presence, history, and context key off the project; many sessions attach to it.
+- **MCP as the client protocol** means zero client maintenance, automatic support for every Claude Code
+  surface, and future-proofing as Anthropic ships new interfaces.
+- A **CRDT** (`pycrdt`, Yjs-wire-compatible) guarantees convergence without a central lock. When a
+  Phase-2 web IDE is added, it speaks the same Yjs protocol to the same server — no backend changes.
 
 ---
 
@@ -383,12 +416,27 @@ result matters.
 | **3 — Conflicts** | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; choose keep-A / keep-B / merged. |
 | **4 — Context + measure** | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed snapshots to git; session export; **run the experiment** (below). |
 
-**Client:** a Python **Textual** TUI — engineer's agent chat + a live view of the shared project +
-presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a full web editor is a thin
-Phase-2 client over the *same Python backend*.)
+**Client — zero new client software.** Engineers add one line to `.claude/settings.json` and connect
+their existing Claude Code surface (CLI, desktop, VS Code extension, or web) to the Backyard MCP
+server. No new tool to install or learn.
 
-**Excluded from pilot:** DevOps/Reviewer roles, custom roles, web editor, SSO (deferred to Phase 2),
-AST-level merge of incompatible units (pilot surfaces them, doesn't auto-merge).
+```json
+// .claude/settings.json  (added once per engineer)
+{
+  "mcpServers": {
+    "backyard": { "url": "https://backyard.yourcompany.com/project/abc123" }
+  }
+}
+```
+
+**The only new UI in Phase 1:** a lightweight web dashboard (single HTML page served by the FastAPI
+server) for the three things that need a visual surface:
+- **Presence** — who's in the project, which agent is editing what.
+- **Conflict resolution cards** — side-by-side diff, one-click choose.
+- **Audit log** — chronological feed of all agent actions with attribution.
+
+**Excluded from pilot:** DevOps/Reviewer roles, custom roles, full web IDE with live cursors (Phase 2),
+SSO (Phase 2), AST-level merge of incompatible units (pilot surfaces them, doesn't auto-merge).
 
 ### 10.1 The pilot experiment (the real deliverable)
 
@@ -426,14 +474,17 @@ important as the time measurement. A tool that's 20% faster but creates confusio
 | Semantic check | stdlib **`ast`** (Python) + **`tree-sitter`** (multi-language) | parse-validate converged regions; map ranges→units |
 | Snapshots | **`GitPython`** | attributed checkpoints of live state |
 | Path safety | **`pathspec`** / `os.path.realpath` | block traversal at the Gateway |
-| Client (MVP) | **Textual** (+ **Rich**) | full Python TUI: chat + live project view + presence |
+| **Client (Phase 1)** | **none** — engineers use existing Claude Code (CLI / desktop / VS Code / web) | zero client code; MCP connection via one-line settings config |
+| **Dashboard (Phase 1)** | Vanilla HTML/JS single-page app served by FastAPI | presence, conflict cards, audit log — the three things that need a visual surface |
+| **Web IDE (Phase 2)** | Monaco editor + Yjs WebSocket client | full live-cursor editing UI; thin client over the same Python CRDT server |
 | Tests | **pytest** + **pytest-asyncio** + **fakeredis** | CRDT-edit and watcher correctness first |
 | Dev infra | **docker-compose** (redis + postgres) | one-command local stack |
 
-**Python vs. TypeScript:** Python is the right call. The one thing that normally argues for JS here —
-real-time-collaboration CRDTs live in the JS world — is neutralized by **`pycrdt`**, which is the
-Rust/Yjs CRDT with Python bindings and the *same wire protocol* as JS clients. We get the real-time core
-in Python today, and any web editor we add later just talks Yjs to this same server.
+**Why no custom client in Phase 1:** Claude Code already ships a CLI, desktop app, VS Code extension,
+and web interface — all speaking MCP. Building a custom terminal client (Textual) would duplicate that
+work and create a maintenance burden. Instead Backyard is purely a server; engineers connect their
+*existing* Claude Code setup to it. Every new Claude Code surface Anthropic ships becomes a Backyard
+client automatically.
 
 ---
 
@@ -444,33 +495,43 @@ backyard/
 ├── docs/{technical-report,architecture,roadmap}.md
 ├── src/backyard/
 │   ├── server/
-│   │   ├── app.py                 # FastAPI entry, WS routes
+│   │   ├── app.py                 # FastAPI entry: MCP endpoint + WS routes + dashboard
 │   │   ├── project_registry.py    # ① projects ⇄ sessions
 │   │   ├── sync/                  # ② Live Sync Engine
 │   │   │   ├── crdt_doc.py        #   pycrdt document per project
 │   │   │   └── ws_sync.py         #   pycrdt-websocket protocol
-│   │   ├── session.py             # ③ per-human session workspace
-│   │   ├── gateway.py             # ④ Agent Gateway (Anthropic → CRDT edits)
+│   │   ├── session.py             # ③ per-engineer session workspace
+│   │   ├── gateway.py             # ④ Agent Gateway (routes MCP tool calls → CRDT + watcher)
 │   │   ├── watcher/               # ⑤ Semantic Conflict Watcher
 │   │   │   ├── parse_check.py     #   ast / tree-sitter validation
 │   │   │   ├── unit_map.py        #   CRDT range → function/class map
 │   │   │   └── resolution.py      #   shared resolution cards
 │   │   ├── context/               # ⑥ shared context store (per project)
-│   │   ├── mcp_hub/               # ⑦ MCP tools
-│   │   ├── presence.py            # ⑧ cursors + event bus (Redis)
+│   │   ├── mcp_hub/               # ⑦ MCP server — standard tools + team-coordination tools
+│   │   │   ├── server.py          #   MCP server instance (one per session)
+│   │   │   ├── file_tools.py      #   read_file, apply_edit, list_files
+│   │   │   └── team_tools.py      #   publish_context, signal_ready, wait_for_signal, raise_resolution
+│   │   ├── presence.py            # ⑧ cursors + event bus (Redis pub/sub)
 │   │   └── snapshot.py            # ⑨ attributed git checkpoints
 │   ├── roles/definitions.py
 │   ├── protocol/                  # Pydantic event/message models
-│   └── client/                    # Textual TUI
+│   └── dashboard/                 # Phase 1: lightweight single-page web app
+│       ├── index.html             #   presence, conflict cards, audit log
+│       └── static/                #   minimal JS (no framework needed in Phase 1)
 ├── tests/                         # pytest (sync + watcher first)
 ├── infra/docker-compose.yml
 ├── pyproject.toml
 └── README.md
 ```
 
-**Build order:** `protocol` → `sync` (CRDT live-edit, tested in isolation) → `gateway` (agent edits as
-CRDT updates) → `watcher` (semantic conflicts) → `mcp_hub` → `client`. The sync engine and watcher are
-the riskiest surfaces (Fatal Risks II & IV) and come first.
+**No `client/` directory.** Engineers use their existing Claude Code setup; the client is not ours to
+build.
+
+**Build order:** `protocol` → `sync` (CRDT live-edit, tested in isolation) → `mcp_hub/file_tools`
+(standard Claude Code tools over CRDT) → `gateway` → `mcp_hub/team_tools` → `watcher` → `dashboard`.
+The sync engine and watcher are the riskiest surfaces (Fatal Risks II & IV) and come first. The MCP
+file tools come before the team tools so basic single-engineer functionality works before multi-engineer
+features are added.
 
 ---
 

@@ -49,13 +49,19 @@ how fast individuals work alone.
 - [Author & links](#author--links)
 - [License](#license)
 
-## Built on Claude Code — extended for teams
+## A team wrapper for Claude Code — not a replacement
 
-**Backyard is a superset of Claude Code, not a replacement.** Every capability Claude Code gives a
-single engineer is available in every Backyard session: file editing, shell commands, git operations,
-MCP tool use, multi-step agent loops, streaming, slash commands, CLAUDE.md project context.
+**Backyard is a coordination wrapper that makes Claude Code work for teams.** Engineers keep using
+whatever Claude Code surface they already use — CLI, desktop app, VS Code extension, or web. They add
+one line to their settings and connect to a Backyard project. Every Claude Code capability they have
+today still works; Backyard adds the team layer on top:
 
-Backyard adds the one layer Claude Code deliberately left out — the team layer:
+```json
+// .claude/settings.json  (one-time setup per engineer)
+{ "mcpServers": { "backyard": { "url": "https://backyard.yourcompany.com/project/abc" } } }
+```
+
+| Feature | Claude Code (solo) | Backyard (team) |
 
 | Feature | Claude Code | Backyard |
 |---|---|---|

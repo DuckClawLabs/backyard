@@ -15,12 +15,19 @@ The pilot must involve a **real enterprise engineering team** — not two indivi
 conditions are the point: actual codebase, actual coordination overhead, a stakeholder who can validate
 whether the result matters to the business.
 
+Engineers connect their **existing Claude Code setup** (CLI, desktop, VS Code, or web) to the Backyard
+MCP server via a one-line config — no new client to install.
+
+```json
+{ "mcpServers": { "backyard": { "url": "https://backyard.co/project/abc" } } }
+```
+
 | Week | Deliverable |
 |---|---|
-| 1 — Live core | FastAPI server; project create; two separate sessions join; **`pycrdt` live-sync** of a shared file tree; presence (who's editing what); **full audit log from day one** (`engineer, role, agent-turn, timestamp`). |
-| 2 — Agents in the loop | Agent Gateway per session (Anthropic SDK); **agent edits applied as CRDT updates**, streaming live to the other session; project-briefing injection; role-based capability enforcement. |
-| 3 — Conflicts | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; keep-A / keep-B / merged. |
-| 4 — Context + measure | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed git snapshots; session export; **run the experiment**. |
+| 1 — MCP server + live core | FastAPI server; MCP endpoint serving standard file tools (read, edit, list, shell, git) + project registry; **`pycrdt` live-sync** so two sessions share one project; presence; **full audit log from day one**. |
+| 2 — Team tools + agents | MCP team-coordination tools (`publish_context`, `signal_ready`, `wait_for_signal`, `raise_resolution`); Agent Gateway routing MCP calls through the CRDT; project-briefing injection; role capability enforcement. |
+| 3 — Conflicts + dashboard | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; lightweight web dashboard (presence, conflict cards, audit log). |
+| 4 — Context + measure | Shared context store; attributed git snapshots; session export; **run the pilot experiment**. |
 
 **The experiment:** two engineers build the same well-defined feature in Backyard vs. their current
 PR-based workflow. Measure wall-clock, idle time, defects at first integration, and — critically — the
