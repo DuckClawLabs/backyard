@@ -1,70 +1,83 @@
 # Backyard — Roadmap
 
-**Multi-human, multi-agent collaborative coding.** Many humans, each with their own session + background
-agent, all contributing to one live shared project in real time. Full detail in
-[`technical-report.md`](./technical-report.md).
+**Enterprise engineering teams.** Each engineer with their own background AI agent. One live shared
+project. Full detail in [`technical-report.md`](./technical-report.md).
 
 ---
 
-## Phase 1 — MVP (4 weeks): *Does it beat PRs?*
+## Phase 1 — Pilot (4 weeks): *Does it reduce team coordination overhead?*
 
-**Scope:** 2 humans → **2 separate sessions**, each with **1 background agent**, all editing **1 live
-shared project** (CRDT) with presence and semantic-conflict surfacing. Frontend + Backend. Nothing else.
+**Scope:** 2 engineers from a real enterprise team → **2 separate sessions**, each with **1 background
+agent**, editing **1 live shared project** (CRDT) with presence, audit logging, and semantic-conflict
+surfacing. Frontend + Backend roles. Nothing else.
+
+The pilot must involve a **real enterprise engineering team** — not two individuals. Realistic
+conditions are the point: actual codebase, actual coordination overhead, a stakeholder who can validate
+whether the result matters to the business.
 
 | Week | Deliverable |
 |---|---|
-| 1 — Live core | FastAPI server; project create; two separate sessions join; **`pycrdt` live-sync** of a shared file tree across both; presence (who's editing what). |
-| 2 — Agents in the loop | Agent Gateway per session (Anthropic SDK); **agent edits applied as CRDT updates**, streaming live to the other session; project-briefing injection. |
-| 3 — Conflicts | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both humans; keep-A / keep-B / merged. |
+| 1 — Live core | FastAPI server; project create; two separate sessions join; **`pycrdt` live-sync** of a shared file tree; presence (who's editing what); **full audit log from day one** (`engineer, role, agent-turn, timestamp`). |
+| 2 — Agents in the loop | Agent Gateway per session (Anthropic SDK); **agent edits applied as CRDT updates**, streaming live to the other session; project-briefing injection; role-based capability enforcement. |
+| 3 — Conflicts | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; keep-A / keep-B / merged. |
 | 4 — Context + measure | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed git snapshots; session export; **run the experiment**. |
 
-**Client:** Python **Textual** TUI — your agent chat + a live view of the shared project + presence +
-resolution cards. (The `pycrdt` backend is Yjs-wire-compatible, so the Phase-2 web editor is a thin
-client over this same Python server.)
-
-**The experiment:** build the same CRUD-plus-UI feature (a) two people in two sessions on one live
-Backyard project vs. (b) two people on separate sessions merging via PRs. Measure wall-clock, idle time,
-defects at first integration.
+**The experiment:** two engineers build the same well-defined feature in Backyard vs. their current
+PR-based workflow. Measure wall-clock, idle time, defects at first integration, and — critically — the
+Engineering Manager's answer to "would you run the next sprint this way?"
 
 | Outcome | Reading |
 |---|---|
-| Backyard faster, less idle | thesis supported → Phase 2 |
-| No difference | inconclusive → find where the overhead landed |
-| Backyard slower | thesis disconfirmed cheaply → stop, document honestly |
-
-A negative result is a **successful** MVP — four weeks, not a company.
+| Measurably faster, less idle | thesis supported; present to engineering leadership; proceed to Phase 2 |
+| No difference | inconclusive — find where overhead stayed; iterate or stop |
+| Slower / more friction | disconfirmed cheaply — four weeks, not a company |
 
 ---
 
-## Phase 2 — Platform (3 months): *Is it reliable?*
+## Phase 2 — Platform (3 months): *Is it ready for the enterprise?*
 
-- **Web editor** — a visual client with live cursors and inline edits, a thin client over the same
-  Python backend.
-- DevOps + Reviewer roles; cross-domain proposal flow; ADR system.
-- AST-level **merge suggestions** for incompatible units (not just surface-and-pick).
-- Session reconnect without losing agent context; RBAC + invite links.
-- CI webhook → notification into the live project on failing tests.
-- Load test to ~10 concurrent sessions; closed beta with ~20 teams.
-
----
-
-## Phase 3 — Product (6 months): *Is it a business?*
-
-- Kubernetes session isolation; SSO/SAML; audit + retention (SOC 2 prep).
-- Private-cloud deployment option.
-- Role-template marketplace; custom MCP tool plugins.
-- Async mode: your agent works while you're away, briefs you on return.
-- Issue-tracker (Linear/Jira) → live-project workflow.
-- GA launch with public pricing.
+- All roles: DevOps, Reviewer; org-configurable domain schemas.
+- **Web editor** with live cursors (thin Yjs client over the same Python backend).
+- **Org-wide admin dashboard**: user management, role assignments, usage and cost reporting.
+- **SSO/SAML** — moved to Phase 2, not Phase 3. This is a non-negotiable enterprise requirement for any
+  security-conscious organization.
+- Compliance audit log exports (CSV/JSON, filterable by engineer, session, time range).
+- CI/CD hooks — failing test notification surfaced live into the project.
+- AST-level merge suggestions for incompatible units (not just surface-and-pick).
+- Session reconnect without losing agent context.
+- RBAC: invite links per role, org-level permissions.
+- Load test to ~20 concurrent sessions.
+- **Closed enterprise beta:** 3–5 enterprise customers running full sprints.
 
 ---
 
-## Fatal-risk gates (must stay green to advance)
+## Phase 3 — Enterprise GA (6 months): *Is it deployable everywhere?*
 
-| # | Risk | Gate |
+- **Private-cloud and on-premise deployment** — non-negotiable for financial services, healthcare, and
+  defense customers; moved forward, not a Phase-3 afterthought.
+- Kubernetes session isolation per org.
+- **SOC 2 Type II** certification.
+- **SCIM provisioning** (auto-sync engineers from Okta/Azure AD).
+- Custom data-retention and deletion policy per org.
+- Role-template marketplace: community-defined role schemas for common team structures.
+- **Async mode:** agent works while an engineer is in a different time zone; full session briefing on
+  return.
+- Issue-tracker integration (Linear, Jira) → live project workflow.
+- GA with enterprise pricing (§15 of the technical report).
+
+---
+
+## Enterprise feature priority rationale
+
+Features that were Phase 3 in a consumer product are Phase 1/2 here because enterprise buyers evaluate
+on compliance, security, and control — not feature count. A CTO who can't check "SSO" and "audit log"
+off a vendor security questionnaire will not adopt the product regardless of how well the collaboration
+works. These are gates, not nice-to-haves.
+
+| Feature | Consumer product phase | Backyard phase |
 |---|---|---|
-| I | Coordination overhead rises | Phase-1 experiment must show it *falls* (no merge step, live presence). |
-| II | Concurrent edits lose work | **CRDT guarantees convergence + no lost edits**; sync engine tested exhaustively first. |
-| III | Multi-principal trust unsafe | Agents *stop and surface*; hard System floor holds. |
-| IV | Conflict resolution slow/confusing | Text auto-converges; only *semantic* conflicts surface — to involved humans, surgical region freeze. |
-| V | No revenue path | Paid boundary (hosted collaboration + web editor) defined before code. |
+| Full audit log | Phase 3 | **Phase 1** (day one) |
+| SSO/SAML | Phase 3 | **Phase 2** |
+| Compliance export | Phase 3 | **Phase 2** |
+| Private/on-premise deploy | Phase 3 | **Phase 3** (but designed for from day one) |
+| SCIM provisioning | Phase 3 | **Phase 3** |

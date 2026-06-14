@@ -1,31 +1,34 @@
-# Backyard — Multi-Human, Multi-Agent Collaborative Coding
+# Backyard — Multi-Human, Multi-Agent Collaborative Coding for Enterprise Engineering Teams
 
-**Many humans, each with their own background AI agent, all contributing to one live shared project in
-real time.**
+**Enterprise engineering teams. Each engineer with their own background AI agent. One live shared
+project. All contributing at once, in real time.**
 Companion to the white paper *The Unbuilt Product* (M. Reddy, June 2026).
-Version 0.3 · Status: Design · Stack: Python
+Version 0.4 · Status: Design · Stack: Python · Target: Enterprise
 
 ---
 
 ## 0. Executive Summary
 
 The white paper establishes the gap: every AI coding agent assumes **one human per session**, yet
-software is built by teams. **Backyard** fills the missing quadrant with a specific shape:
+enterprise software is built by teams of dozens to hundreds of engineers. AI has accelerated the
+individual — it has not touched the team's coordination overhead. **Backyard** fills that gap with a
+specific shape:
 
-> Many humans log in. **Each gets their own private session with their own background agent.** All of
-> those sessions contribute to **one live shared project at the same time.** Every human's edits, and
-> every agent's edits, appear live for everyone. When two changes truly conflict, the collision is
-> surfaced to the humans involved and they **choose between themselves.**
+> Each engineer logs into the platform and gets their **own private session with their own background AI
+> agent**. All of those sessions contribute to **one live shared project at the same time.** Every
+> engineer's edits — and every agent's edits — appear live for the entire team. When two changes truly
+> conflict, the collision is surfaced to the engineers involved and they **choose between themselves.**
+> The full audit trail records who decided what and why.
 
-The model is simple: **one shared project that the whole team contributes to at once, in real time, with
-an AI agent working alongside each person.** No pull requests, no merge step, no "who has the file
-open." The shared state is always already merged.
+The model is: **one shared project that the whole engineering team contributes to at once, with an AI
+agent working alongside each engineer.** No pull requests, no merge latency, no "is the API ready?"
+stand-up. The shared state is always already merged.
 
 This report specifies the system end-to-end: the project-centric architecture, the real-time sync engine,
 how separate sessions and background agents share one project, the two-layer conflict model (automatic
 text convergence + human-resolved semantic conflicts), the trust model, roles, shared context, the
-inter-agent protocol, a 4-week MVP, the Python stack, and a phased roadmap — with every one of the white
-paper's **five fatal risks** mapped to a concrete mitigation.
+inter-agent protocol, a 4-week enterprise pilot, the Python stack, and a phased roadmap — with every one
+of the white paper's **five fatal risks** mapped to a concrete mitigation.
 
 ---
 
@@ -35,10 +38,11 @@ paper's **five fatal risks** mapped to a concrete mitigation.
 
 The unit everyone shares is the **Project** — the live codebase.
 
-Each human has their **own Session**: their private chat, their own context, and their own **background
-agent(s)** working on their behalf. Sessions are *isolated from each other* — you don't read someone
-else's conversation. You see other people's *edits and cursors* in the shared project, not their private
-notes.
+Each engineer has their **own Session**: their private chat, their own context, and their own
+**background agent(s)** working on their behalf. Sessions are *isolated from each other* — you don't
+read a colleague's conversation. You see other engineers' *edits and cursors* in the shared project,
+not their private notes. This matches the trust model enterprise organizations need: individual
+accountability with shared visibility.
 
 ```
                           ┌──────────── ONE LIVE PROJECT ────────────┐
@@ -56,15 +60,16 @@ notes.
   └───────────┘               └───────────┘  └───────────┘               └───────────┘
 ```
 
-### 1.2 Three things this gets right that pull requests don't
+### 1.2 Four things this gets right that pull requests don't — at enterprise scale
 
 - **No merge step.** The shared state is *always already merged*. There is no "open a PR, wait, resolve
   conflicts, merge" — your edits and your agent's edits land in the live project as they happen.
-- **Everyone sees everything, live.** Human C watches Human A's agent refactor a module in real time,
-  not in a diff three hours later. Context is never reconstructed.
-- **Agents work in the background, per person.** Each human's agent is doing real work autonomously
-  inside that human's session; its output flows into the shared project the same way the human's own
-  keystrokes do.
+- **Everyone sees everything, live.** A senior engineer watches a junior's agent work in real time and
+  can intervene immediately — not in a diff review 24 hours later. Context is never reconstructed.
+- **Cross-timezone handoffs cost nothing.** The incoming engineer's session picks up where the outgoing
+  one left off; the agent briefs them on what happened. The first hour of every handoff disappears.
+- **Full audit trail, always on.** Every agent action is logged with `(engineer, role, agent-turn,
+  timestamp)`. Compliance and incident review don't require reconstructing history from git blame.
 
 ### 1.3 The one hard problem this creates
 
@@ -74,7 +79,7 @@ compile or that is logically contradictory. So Backyard needs **two layers** (se
 
 1. **Text convergence** — guarantees everyone's view is identical and no keystroke is ever lost.
 2. **Semantic conflict detection** — notices when the converged code is broken or two sessions changed
-   the same logical unit incompatibly, and **surfaces it to the humans involved to choose between
+   the same logical unit incompatibly, and **surfaces it to the engineers involved to choose between
    themselves.**
 
 ---
@@ -332,38 +337,50 @@ Each agent's sanctioned channel to the shared project and other sessions is a se
 
 ---
 
-## 10. MVP — Falsify the Thesis in 4 Weeks
+## 10. Enterprise Pilot — Falsify the Thesis in 4 Weeks
 
-**Scope:** 2 humans → **2 separate sessions**, each with **1 background agent**, all editing **1 live
-shared project** (CRDT), with presence and semantic-conflict surfacing. Frontend + Backend roles.
-Nothing else.
+**Scope:** 2 engineers from a real engineering team → **2 separate sessions**, each with **1 background
+agent**, all editing **1 live shared project** (CRDT), with presence, audit logging, and semantic-conflict
+surfacing. Frontend + Backend roles. Nothing else.
+
+The pilot target is **an existing enterprise engineering team**, not two individuals. Running it inside
+a company provides realistic conditions: actual codebase complexity, actual coordination overhead to
+measure against, and an actual stakeholder (an Engineering Manager or VP) who can validate whether the
+result matters.
 
 | Week | Deliverable |
 |---|---|
-| **1 — Live core** | FastAPI server; project create; **two separate sessions** join; **`pycrdt` live-sync** of a shared file tree across both sessions; presence (who's editing what). |
-| **2 — Agents in the loop** | Agent Gateway per session wrapping the Anthropic SDK; **agent edits applied as CRDT updates** (stream live to the other session); project-briefing injection. |
-| **3 — Conflicts** | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both humans; choose keep-A / keep-B / merged. |
+| **1 — Live core** | FastAPI server; project create; **two separate sessions** join; **`pycrdt` live-sync** of a shared file tree across both sessions; presence (who's editing what); **full audit log from day one** (`engineer, role, agent-turn, timestamp` on every action). |
+| **2 — Agents in the loop** | Agent Gateway per session wrapping the Anthropic SDK; **agent edits applied as CRDT updates** (stream live to the other session); project-briefing injection; role-based capability enforcement. |
+| **3 — Conflicts** | Semantic Conflict Watcher (parse-check + same-unit detection); **shared resolution card** to both engineers; choose keep-A / keep-B / merged. |
 | **4 — Context + measure** | MCP tools (`publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`); attributed snapshots to git; session export; **run the experiment** (below). |
 
-**Client:** a Python **Textual** TUI showing your agent chat + a live view of the shared project +
-presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a visual **web** editor with
-live cursors is a thin Phase-2 client over the *same Python backend* — the team stays in Python for
-everything that matters.)
+**Client:** a Python **Textual** TUI — engineer's agent chat + a live view of the shared project +
+presence + resolution cards. (The CRDT server is Yjs-wire-compatible, so a full web editor is a thin
+Phase-2 client over the *same Python backend*.)
 
-**Excluded from MVP:** DevOps/Reviewer roles, custom roles, web editor, billing, AST-level merge of
-incompatible units (MVP surfaces them, doesn't auto-merge).
+**Excluded from pilot:** DevOps/Reviewer roles, custom roles, web editor, SSO (deferred to Phase 2),
+AST-level merge of incompatible units (pilot surfaces them, doesn't auto-merge).
 
-### 10.1 The experiment (the real deliverable)
+### 10.1 The pilot experiment (the real deliverable)
 
-Build the same small feature (a CRUD resource + UI) two ways: **Arm 1** — two people in two sessions on
-one live Backyard project; **Arm 2** — the same two on separate agent sessions merging via PRs. Measure
-**wall-clock to working feature**, **idle-waiting time**, **defects at first integration**.
+Run with **two engineers from the same enterprise team** building the same well-defined feature (a
+service endpoint + the UI that consumes it):
+
+- **Arm 1:** two engineers in two Backyard sessions on one live project.
+- **Arm 2:** the same two engineers on separate agent sessions, merging via PRs (their current workflow).
+
+Measure **wall-clock to working feature**, **idle-waiting time** (blocked on the other person or a PR
+review), and **defects at first integration**.
 
 | Outcome | Reading |
 |---|---|
-| Backyard faster, less idle | thesis supported → Phase 2 |
-| No difference | inconclusive → find where overhead landed |
-| Backyard slower / more friction | thesis disconfirmed **cheaply** → stop, document honestly |
+| Backyard measurably faster, less idle | thesis supported; present to engineering leadership; proceed to Phase 2 |
+| No difference | inconclusive — identify where the overhead remained; iterate or stop |
+| Backyard slower / more friction | thesis disconfirmed **cheaply** — four weeks is the cost of learning this early |
+
+The Engineering Manager's subjective assessment — "would you run the next sprint this way?" — is as
+important as the time measurement. A tool that's 20% faster but creates confusion won't be adopted.
 
 ---
 
@@ -431,14 +448,17 @@ the riskiest surfaces (Fatal Risks II & IV) and come first.
 
 ## 13. Roadmap
 
-- **Phase 1 — MVP (4 wks):** §10. *Do two people + two background agents on one live project beat PRs?*
-- **Phase 2 — Platform (3 mo):** DevOps + Reviewer roles; cross-domain proposals; ADRs; **web editor**
-  (a visual client with live cursors, a thin client over the same Python backend); AST-level merge
-  suggestions for incompatible units; session reconnect; RBAC + invite links; CI webhook into the live
-  project; load test to ~10 concurrent sessions; closed beta (~20 teams).
-- **Phase 3 — Product (6 mo):** Kubernetes session isolation; SSO/SAML; audit/retention (SOC 2 prep);
-  private-cloud deploy; role-template marketplace; async mode (your agent works while you're away,
-  briefs you on return); issue-tracker → project workflow; GA + pricing.
+- **Phase 1 — Pilot (4 wks):** §10. *Does the team ship faster? Does coordination overhead fall?* Audit
+  log from day one. Target: one real enterprise engineering team.
+- **Phase 2 — Platform (3 mo):** all roles; web editor with live cursors; org-wide admin dashboard;
+  **SSO/SAML** (enterprise requirement, moved forward); compliance audit exports; CI/CD hooks; AST-level
+  merge suggestions; RBAC + org-level role schemas; load test to ~20 concurrent sessions; closed beta
+  with 3–5 enterprise customers.
+- **Phase 3 — Enterprise GA (6 mo):** **private-cloud and on-premise deployment** (non-negotiable for
+  regulated industries); Kubernetes session isolation; SOC 2 Type II; SCIM provisioning; custom
+  data-retention policy; issue-tracker (Linear/Jira) → project workflow; role-template marketplace;
+  async mode (agent works while an engineer is in a different timezone, briefs them on return); GA with
+  enterprise pricing (§15).
 
 ---
 
@@ -454,18 +474,40 @@ the riskiest surfaces (Fatal Risks II & IV) and come first.
 
 ---
 
-## 15. Revenue Model
+## 15. Revenue Model (Enterprise)
 
-Charge for the **collaboration layer**; pass model tokens through at cost (shown per session). The value
-sold is the live shared project, the real-time sync, conflict resolution, shared context, presence, and
-audit — not the API call.
+Backyard is an **enterprise product**. There is no individual or free tier. The buyer is an
+organization — a CTO, VP of Engineering, or Head of Platform — purchasing on behalf of their engineering
+team. The sales motion is enterprise B2B: pilot → expansion.
 
-- **Free:** 1 live project, 2 sessions, built-in roles, terminal client.
-- **Team — ~$49/seat/mo:** unlimited projects + sessions, all roles, history, CI hooks, **web editor**.
-- **Enterprise — ~$149/seat/mo:** custom roles, SSO, audit/retention, private-cloud, SLA.
+Charge for the **collaboration layer and the operational guarantee**; pass model tokens through at cost
+(shown per session, attributable per engineer for internal chargebacks). The value sold is real-time
+team coordination, semantic conflict resolution, shared context management, full audit logging, and
+compliance controls — not the AI API call.
 
-Local-first/self-host is the free on-ramp; **hosted collaboration is the paid boundary** — drawn before
-the first line of code (Fatal Risk V).
+**Pricing structure:**
+
+| Tier | Target | Price | What's included |
+|---|---|---|---|
+| **Team** | Startup or small org (10–50 engineers) | ~$75/seat/mo, annual | Unlimited projects, all roles, web editor, CI hooks, session history, shared-context store, audit log |
+| **Enterprise** | Mid-to-large org (50–500+ engineers) | ~$150/seat/mo, annual | Everything in Team + **SSO/SAML**, **SCIM provisioning**, **SOC 2 audit reports**, **private-cloud deployment**, dedicated SLA, account manager |
+| **Enterprise+** | Regulated industries / large platforms | Custom contract | Everything in Enterprise + on-premise deployment, custom data-retention policy, custom role schemas, professional services |
+
+**On private/on-premise deployment:** for many enterprise buyers — especially in financial services,
+healthcare, and defense — the requirement that code never leaves their infrastructure is non-negotiable.
+Private deployment is therefore an Enterprise tier feature, not a Phase-3 add-on. The Python stack and
+`pycrdt` make this straightforward: the coordination server is a standard Python application with no
+proprietary cloud dependencies.
+
+**Token cost reality:** a 1-hour session with 4 agents averaging 10 turns each ≈ 80k tokens at current
+rates. This is cents, not dollars. The cost of the *coordination* — the Backyard platform — is the
+product; the model API cost is a pass-through at cost, shown transparently per session, and attributable
+to each engineer for internal reporting.
+
+**Why no free tier:** enterprise buyers don't adopt collaboration infrastructure through a free tier —
+they run a **pilot** (§10). The pilot *is* the top-of-funnel. A free tier would attract individual
+developers, generate support load, and dilute the enterprise signal. It is a distraction from the
+actual buyer.
 
 ---
 
