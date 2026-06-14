@@ -1,12 +1,14 @@
-# Testing Backyard Locally
+# Local Testing — Creator / Developer Verification
 
-Run the full server on your machine, connect Claude Code to it, and verify that two engineer identities can share context through real MCP tool calls.
+This guide is for **the person building Backyard** — verifying that the server code works correctly before deploying it anywhere.
+
+You are one person, on one machine, running the server locally. You are checking that the code is correct: tests pass, the server starts, the MCP connection works, and the tools return the right data. This is not a multi-engineer test — that requires a shared deployed server. See [railway.md](railway.md) for the real multi-engineer test.
 
 **What you need:**
 - Docker + Docker Compose (for Redis + Postgres)
 - Python 3.11+
 - An Anthropic API key (for file summary generation)
-- Claude Code installed (`claude` CLI, desktop app, or VS Code extension)
+- Claude Code installed
 
 ---
 
@@ -20,7 +22,7 @@ pip install uv
 uv pip install -e ".[dev]"
 ```
 
-Verify the install:
+Verify:
 
 ```bash
 python -c "import backyard; print('ok')"
@@ -34,16 +36,16 @@ python -c "import backyard; print('ok')"
 cp .env.example .env
 ```
 
-Open `.env` and set these (the rest can stay as defaults):
+Open `.env` and set:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...        # your real key — needed for file summaries
-API_KEYS=key-alice,key-bob          # two keys for testing two engineers
-BASE_URL=http://localhost:8000      # local URL
+API_KEYS=key-alice,key-bob          # two keys so you can simulate two identities
+BASE_URL=http://localhost:8000
 LOG_LEVEL=DEBUG                     # see everything during testing
 ```
 
-Leave `DATABASE_URL` and `REDIS_URL` at their defaults — docker-compose sets those automatically.
+Leave `DATABASE_URL` and `REDIS_URL` at their defaults — docker-compose sets those.
 
 ---
 
@@ -68,23 +70,22 @@ docker-compose -f infra/docker-compose.yml ps
 alembic upgrade head
 ```
 
-Expected output: a list of migration steps ending in `INFO  [alembic.runtime.migration] Running upgrade ...`
-
 If you see `could not connect to server`, Postgres is not ready yet — wait 10 seconds and retry.
 
 ---
 
 ## Step 5 — Run the automated test suite
 
-Before testing manually, verify the core services pass their unit tests:
+This is the primary local verification step.
 
 ```bash
 pytest -v
 ```
 
-Expected: all tests in `tests/` pass. The tests use `fakeredis` and an in-memory SQLite database — no external services needed.
+Tests use `fakeredis` and an in-memory SQLite database — no external services needed. All tests should pass before you deploy anything.
 
-You should see:
+Expected output:
+
 ```
 tests/test_signal_engine.py::test_publish_then_wait PASSED
 tests/test_signal_engine.py::test_persistent_signal PASSED
@@ -102,7 +103,7 @@ tests/test_briefing.py::test_briefing_token_budget PASSED
 tests/test_profile_reader.py::... (8 tests) PASSED
 ```
 
-If tests fail here, fix them before proceeding — the server will behave incorrectly if the core services are broken.
+If any test fails, fix it before proceeding — a broken unit test means the server is broken.
 
 ---
 
@@ -112,13 +113,7 @@ If tests fail here, fix them before proceeding — the server will behave incorr
 uvicorn backyard.server.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Or use docker-compose to start everything together (app + Redis + Postgres):
-
-```bash
-docker-compose -f infra/docker-compose.yml up
-```
-
-Verify the server is running:
+Verify it's running:
 
 ```bash
 curl http://localhost:8000/health
@@ -129,7 +124,7 @@ curl http://localhost:8000/health
 
 ## Step 7 — Create your identity file
 
-In the directory where you run Claude Code, create `.backyard-mcp/me.yaml`:
+In your current directory, create `.backyard-mcp/me.yaml`:
 
 ```bash
 mkdir -p .backyard-mcp
@@ -139,21 +134,19 @@ mkdir -p .backyard-mcp
 # .backyard-mcp/me.yaml
 project:
   name: Test Project
-  id: test-project-001         # must be identical for both test engineers
+  id: test-project-local-001
 
   team:
-    - name: Alice Chen
-      email: alice@test.com
+    - name: Your Name
+      email: you@test.com
       role: backend
 ```
 
-> For the two-engineer test in Step 9, you will create a second workspace with a different `me.yaml` (Bob's).
-
 ---
 
-## Step 8 — Add Backyard to Claude Code settings
+## Step 8 — Connect Claude Code to the local server
 
-Edit (or create) `.claude/settings.json` in your home directory or project directory:
+Edit `.claude/settings.json` (in your home directory or this project directory):
 
 ```json
 {
@@ -168,222 +161,158 @@ Edit (or create) `.claude/settings.json` in your home directory or project direc
 }
 ```
 
-The `X-Workspace-Root` header is sent automatically by Claude Code with the path to the workspace. Backyard reads `me.yaml` from that path.
-
-**Where `.claude/settings.json` lives:**
-- CLI: `~/.claude/settings.json` (global) or `<project>/.claude/settings.json` (project-scoped)
-- VS Code extension: same paths, picked up automatically
-- Desktop app: same paths
-
----
-
-## Step 9 — Verify the MCP connection
-
-Start Claude Code in the directory that contains `.backyard-mcp/me.yaml`:
+Start Claude Code:
 
 ```bash
 claude
 ```
 
-In the Claude Code session, ask:
+Ask:
 
 ```
 What Backyard tools do you have access to?
 ```
 
-Expected response: Claude should list the MCP tools — `publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`, `raise_resolution`, `read_file`, `write_file`, `list_files`, `get_project_status`.
+Expected: Claude lists the full MCP tool catalog — `publish_context`, `query_shared_context`, `signal_ready`, `wait_for_signal`, `raise_resolution`, `read_file`, `write_file`, `list_files`, `get_project_status`.
 
-If the tools are not listed, check:
-- Is the server running? `curl http://localhost:8000/health`
-- Is the API key in `.env` matching what's in `settings.json`?
-- Does `.backyard-mcp/me.yaml` exist in the current directory?
+Server logs should show:
 
-Server logs (from the terminal where uvicorn is running) will show the connection:
 ```
-INFO: Engineer Alice Chen (backend) connected to project test-project-001
+INFO: Engineer Your Name (backend) connected to project test-project-local-001
 ```
 
 ---
 
-## Step 10 — Two-engineer test
+## Step 9 — Verify each tool category works
 
-This is the real test. You need two Claude Code sessions running simultaneously, representing two engineers on the same project.
+You are the only engineer here. You are testing that the tools function correctly, not that multi-engineer coordination works. Test each group:
 
-### Setup Engineer B (Bob)
-
-Open a second terminal. Create a second workspace directory:
-
-```bash
-mkdir /tmp/bob-workspace
-cd /tmp/bob-workspace
-mkdir -p .backyard-mcp
-```
-
-Create Bob's identity file:
-
-```yaml
-# /tmp/bob-workspace/.backyard-mcp/me.yaml
-project:
-  name: Test Project
-  id: test-project-001       # same project.id as Alice — this is what links them
-
-  team:
-    - name: Bob Smith
-      email: bob@test.com
-      role: frontend
-```
-
-Create Bob's Claude Code settings:
-
-```bash
-mkdir -p .claude
-cat > .claude/settings.json << 'EOF'
-{
-  "mcpServers": {
-    "backyard": {
-      "url": "http://localhost:8000/mcp",
-      "headers": {
-        "Authorization": "Bearer key-bob"
-      }
-    }
-  }
-}
-EOF
-```
-
-Start Claude Code as Bob:
-
-```bash
-claude
-```
-
----
-
-### Test 1: Project status shows both engineers
-
-In either session, ask Claude:
+**Context:**
 
 ```
-Use get_project_status to show me who's connected to this project.
+Publish a contract called "user-api-v1" with endpoint GET /api/users/:id returning {id, email, name}.
+Then query shared context for all contracts.
 ```
 
-Expected: both Alice (backend) and Bob (frontend) appear in active sessions.
+Expected: contract is stored and returned.
 
----
-
-### Test 2: Signal — the stand-up that never happens
-
-**In Bob's session**, tell Claude:
+**Signals:**
 
 ```
-Wait for the signal "user-api" using wait_for_signal. Timeout 120 seconds.
+Call signal_ready("test-signal") with message "signal works".
+Then call wait_for_signal("test-signal") — it should return immediately because the signal was already published.
 ```
 
-Bob's agent is now waiting. The Claude Code session will be held open (the MCP SSE connection stays alive).
+Expected: `wait_for_signal` resolves immediately (Postgres persistence working).
 
-**In Alice's session**, tell Claude:
-
-```
-Publish a contract for user-api-v1 with endpoint GET /api/users/:id returning {id, email, name}.
-Then signal_ready("user-api").
-```
-
-**Expected result:** Bob's `wait_for_signal` resolves immediately with the signal payload. Bob's agent receives the contract information without any human sending a message.
-
-Check Alice's session logs on the server:
-```
-INFO: signal published: user-api (project: test-project-001, by: alice@test.com)
-INFO: 1 waiter(s) unblocked for topic: user-api
-```
-
----
-
-### Test 3: Shared context — query what teammates published
-
-**In Bob's session**, ask Claude:
-
-```
-Query the shared context for contracts published by the backend role.
-```
-
-Expected: Bob's agent returns the `user-api-v1` contract that Alice published in Test 2.
-
----
-
-### Test 4: Project briefing
-
-In either session, ask Claude:
+**Briefing:**
 
 ```
 What does the project briefing say right now?
 ```
 
-Expected: the briefing includes both engineers (Alice + Bob), the contract published in Test 2, and no open decisions.
+Expected: briefing shows you as the active engineer, lists the contract you published, no open decisions.
+
+**File summary (Anthropic API integration):**
+
+```
+Write a file called src/test.py with a simple Python function that adds two numbers.
+Then call get_file_summary for src/test.py.
+```
+
+Expected: a 2–3 sentence summary is returned. If `ANTHROPIC_API_KEY` is invalid, this will fail with an auth error — fix the key.
+
+**Conflict surface:**
+
+```
+Call raise_resolution with title "test conflict", conflict_a "option A", conflict_b "option B", affects ["src/**"].
+Then call get_project_status and check for open decisions.
+```
+
+Expected: resolution card created, visible in `get_project_status` and at `http://localhost:8000/project/test-project-local-001`.
 
 ---
 
-### Test 5: Conflict surface
+## Step 10 — Simulate two identities from one machine (logic check only)
 
-**In Alice's session**, tell Claude:
+You can open a second terminal and run Claude Code from a different directory with a different `me.yaml` and API key (`key-bob`). Both sessions talk to the same local server and the same local database.
+
+This is useful for checking that the logic is correct — that two sessions on the same `project.id` see each other's data. It is **not** a realistic multi-engineer test because both sessions are on the same machine, same network, with no latency.
+
+```bash
+# Terminal 2
+mkdir /tmp/test-b && cd /tmp/test-b
+mkdir -p .backyard-mcp .claude
+
+cat > .backyard-mcp/me.yaml << 'EOF'
+project:
+  name: Test Project
+  id: test-project-local-001   # same project.id
+
+  team:
+    - name: Test Engineer B
+      email: b@test.com
+      role: frontend
+EOF
+
+cat > .claude/settings.json << 'EOF'
+{
+  "mcpServers": {
+    "backyard": {
+      "url": "http://localhost:8000/mcp",
+      "headers": { "Authorization": "Bearer key-bob" }
+    }
+  }
+}
+EOF
+
+claude
+```
+
+In this second session, ask:
 
 ```
-Call raise_resolution with title "Database choice conflict", conflict_a "use Postgres", conflict_b "use SQLite", affects ["db/**"].
+Query shared context for contracts. Who is connected to this project?
 ```
 
-**In Bob's session**, ask Claude:
+Expected: returns the contract published by the first session, and shows both engineers as active.
 
-```
-Use get_project_status to check for open decisions.
-```
-
-Expected: Bob's agent reports the open resolution card.
-
-Check the dashboard at `http://localhost:8000/project/test-project-001` — the resolution card should be visible there.
+This confirms the shared state works. For the real multi-engineer experience — separate machines, real network, real latency — use Railway.
 
 ---
 
 ## Troubleshooting
 
-**Server fails to start:**
-```
-uvicorn backyard.server.app:app ...
-ModuleNotFoundError: No module named 'backyard'
-```
-Run `uv pip install -e ".[dev]"` again and make sure you're in the repo root.
+**`pytest` fails immediately:**
+`uv pip install -e ".[dev]"` may not have installed test dependencies. Run it again.
 
-**`alembic upgrade head` fails:**
-```
-FATAL: password authentication failed for user "backyard"
-```
-Postgres is not using the docker-compose credentials. Make sure you're running Postgres via docker-compose, not a local installation.
+**Server fails to start — `ModuleNotFoundError`:**
+You are not in the repo root, or the install is broken. Run `uv pip install -e ".[dev]"` from the repo root.
 
-**MCP tools not appearing in Claude Code:**
-- Check the server is running: `curl http://localhost:8000/health`
-- Check the API key matches: `API_KEYS` in `.env` must include the key in `settings.json`
-- Check `me.yaml` exists in the workspace root (the directory where you run `claude`)
-- Look at server logs — a bad `me.yaml` will print an error like `ProfileInvalidError: missing field: email`
+**`alembic upgrade head` fails — `password authentication failed`:**
+Postgres is running outside Docker (a local install), not via docker-compose. Stop the local Postgres and use docker-compose.
 
-**`wait_for_signal` times out:**
-- Both sessions must be connected to the same `project.id` in their `me.yaml`
-- The signal must be published after the wait is registered (or persisted in Postgres for a previous session)
-- Check Redis is running: `docker-compose -f infra/docker-compose.yml ps`
+**Claude Code does not list Backyard tools:**
+- `curl http://localhost:8000/health` — if this fails, the server is not running
+- Check `API_KEYS` in `.env` includes `key-alice`
+- Check `.backyard-mcp/me.yaml` exists in the directory where you run `claude`
+- Look at server logs — a malformed `me.yaml` prints a clear error
 
-**File summaries fail:**
-```
-anthropic.AuthenticationError
-```
-The `ANTHROPIC_API_KEY` in `.env` is invalid or missing. File summaries call the Anthropic API. To test without a key, skip `write_file` calls — all other tools work without it.
+**File summary returns null / Anthropic error:**
+`ANTHROPIC_API_KEY` in `.env` is missing or wrong. All other tools work without it.
 
 ---
 
-## What to verify before calling local testing done
+## Local testing checklist
 
-- [ ] `pytest` passes — all unit tests green
-- [ ] Server starts and `/health` returns 200
-- [ ] Claude Code lists Backyard tools in a session
-- [ ] `get_project_status` shows both engineers when both are connected
-- [ ] `signal_ready` / `wait_for_signal` works across two sessions
-- [ ] `query_shared_context` returns contracts published by the other session
-- [ ] Project briefing includes teammates and published contracts
-- [ ] `raise_resolution` creates a visible conflict card on the dashboard
-- [ ] Server logs show audit entries for every tool call
+- [ ] `pytest -v` — all tests pass
+- [ ] Server starts, `curl /health` returns 200
+- [ ] Claude Code lists Backyard tools
+- [ ] `publish_context` + `query_shared_context` round-trip works
+- [ ] `signal_ready` after publish resolves `wait_for_signal` immediately
+- [ ] Project briefing shows correct state
+- [ ] File summary is generated on `write_file` (requires Anthropic key)
+- [ ] `raise_resolution` creates a conflict card visible in `get_project_status`
+- [ ] Two-identity logic check: second session sees first session's data
+
+When all of these pass, deploy to Railway for the real multi-engineer test.
