@@ -41,7 +41,7 @@ Backyard is a single MCP server that every engineer's Claude Code connects to wi
 
 | # | Component | Core job |
 |---|---|---|
-| ① | **MCP Hub** | The entry point. Authenticates engineers (API token), reads their role from `.backyard-mcp/me.yaml`, routes tool calls to the right internal service, enforces role domain policies, writes every call to the audit log. One MCP connection per engineer session. |
+| ① | **MCP Hub** | The entry point. Reads engineer identity from `.backyard-mcp/me.yaml`, routes tool calls to the right internal service, enforces role domain policies, writes every call to the audit log. One MCP connection per engineer session. Optional API key enforcement if `API_KEYS` is configured. |
 | ② | **Shared Context Store** | Structured artifacts — contracts, ADRs, file summaries — in Postgres (durable) with Redis hot-read cache. Agents publish and query through the MCP Hub. No raw conversation history. |
 | ③ | **Signal Engine** | Redis pub/sub. `signal_ready(topic)` broadcasts to all subscribers. `wait_for_signal(topic)` blocks until the signal arrives. If the signal was already published, returns immediately (Postgres persistence). |
 | ④ | **Project Briefing** | Assembled fresh at the start of every agent turn: who is active (Redis), what was published recently (compressed activity), what contracts exist (Postgres), what decisions are open. ≤2 000 tokens. Injected as an MCP resource — zero prompt engineering required. |
@@ -61,10 +61,7 @@ One URL per Backyard deployment. Never changes, regardless of which project an e
 // .claude/settings.json  (one-time addition per engineer)
 {
   "mcpServers": {
-    "backyard": {
-      "url": "https://backyard.yourcompany.com/mcp",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
+    "backyard": { "url": "https://backyard.yourcompany.com/mcp" }
   }
 }
 ```
@@ -92,9 +89,9 @@ When Claude Code connects to `/mcp`, the server reads `me.yaml` from the `X-Work
 
 ### Connection lifecycle
 
-1. Claude Code opens an SSE connection to `GET /mcp` with the API token in `Authorization`
-2. Server reads `.backyard-mcp/me.yaml` from the workspace root
-3. Server authenticates the token, registers the session in Redis (`sessions:{project_id}`)
+1. Claude Code opens an SSE connection to `GET /mcp`
+2. Server reads `.backyard-mcp/me.yaml` from the workspace root (sent as `X-Workspace-Root` header)
+3. Server registers the session in Redis (`sessions:{project_id}`)
 4. Server sends the full MCP tool catalog to Claude Code
 5. On every agent turn, Claude Code calls `GET /mcp/resources` → server returns the project briefing
 6. On disconnect: session entry removed from Redis; audit log entry written
@@ -220,7 +217,7 @@ Custom roles can be defined in `backyard.toml` at the project root.
 | Hot state / signals | `redis.asyncio` |
 | Durable store | Postgres 16 + SQLAlchemy 2 (async) + Alembic |
 | Internal AI calls | `anthropic` Python SDK (`claude-haiku-4-5`) |
-| Auth | API tokens + bcrypt |
+| Auth | `me.yaml` identity (always); optional API key enforcement via `API_KEYS` env var |
 | Dashboard | Vanilla HTML/JS + FastAPI static files, SSE for live updates |
 | Tests | pytest + pytest-asyncio + fakeredis |
 | Dev infra | docker-compose (Redis + Postgres) |

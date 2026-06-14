@@ -27,10 +27,7 @@ No setup. Add one line to `.claude/settings.json` and your team is connected.
 ```json
 {
   "mcpServers": {
-    "backyard": {
-      "url": "https://backyard.app/mcp",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
+    "backyard": { "url": "https://backyard.app/mcp" }
   }
 }
 ```
@@ -69,12 +66,11 @@ In Railway → your app service → **Variables**, add:
 
 ```
 ANTHROPIC_API_KEY   =  sk-ant-...
-API_KEYS            =  key-alice,key-bob,key-carol
 BASE_URL            =  https://your-app.up.railway.app
 LOG_LEVEL           =  INFO
 ```
 
-`API_KEYS` is a comma-separated list of API keys you give to each engineer. Each engineer uses their own key. No dashboard needed in Phase 1A — keys are set here and distributed to engineers.
+`API_KEYS` is not required. Engineer identity comes from each engineer's `me.yaml` file. The server is secured by who has network access to the Railway URL — set a private domain or restrict inbound traffic in Railway's settings if needed.
 
 ### Step 5 — Run database migrations
 
@@ -91,15 +87,12 @@ Each engineer:
 ```json
 {
   "mcpServers": {
-    "backyard": {
-      "url": "https://your-app.up.railway.app/mcp",
-      "headers": { "Authorization": "Bearer key-alice" }
-    }
+    "backyard": { "url": "https://your-app.up.railway.app/mcp" }
   }
 }
 ```
 
-Done. The whole team is connected. Engineers connect to `https://your-app.up.railway.app/mcp` — one URL, one time setup.
+Done. The whole team is connected. One URL, one time setup.
 
 ---
 
@@ -122,7 +115,6 @@ cp .env.example .env
 Open `.env` and set:
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
-API_KEYS=key-alice,key-bob,key-carol
 BASE_URL=https://your-internal-domain.com
 POSTGRES_PASSWORD=choose-a-strong-password
 ```
@@ -181,10 +173,7 @@ Same as Railway above — each engineer creates their `me.yaml` and adds the URL
 ```json
 {
   "mcpServers": {
-    "backyard": {
-      "url": "https://your-internal-domain.com/mcp",
-      "headers": { "Authorization": "Bearer key-alice" }
-    }
+    "backyard": { "url": "https://your-internal-domain.com/mcp" }
   }
 }
 ```
@@ -252,10 +241,7 @@ project:
 // .claude/settings.json
 {
   "mcpServers": {
-    "backyard": {
-      "url": "https://your-backyard-server.com/mcp",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
+    "backyard": { "url": "https://your-backyard-server.com/mcp" }
   }
 }
 ```
@@ -292,12 +278,12 @@ All variables with defaults are optional.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | — | Used for file summary generation and activity compression |
-| `API_KEYS` | Yes | — | Comma-separated API keys for engineers (Phase 1A auth). Example: `key-alice,key-bob` |
 | `DATABASE_URL` | Yes | — | Postgres connection string. Example: `postgresql+asyncpg://user:pass@localhost/backyard` |
 | `REDIS_URL` | Yes | — | Redis connection string. Example: `redis://localhost:6379` |
 | `BASE_URL` | Yes | — | Public URL of your Backyard deployment. Used in dashboard links. |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `POSTGRES_PASSWORD` | No | — | Only needed by docker-compose.prod.yml (Postgres container) |
+| `API_KEYS` | No | *(disabled)* | Set only if the server is publicly reachable and you need access control. Format: `key-alice,key-bob`. When set, every request must present a matching Bearer token. |
 
 ---
 

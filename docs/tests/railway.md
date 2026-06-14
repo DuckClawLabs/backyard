@@ -63,7 +63,6 @@ Click on your **app service** → **Variables** → add:
 
 ```
 ANTHROPIC_API_KEY   =  sk-ant-...
-API_KEYS            =  key-alice,key-bob
 LOG_LEVEL           =  INFO
 ```
 
@@ -173,10 +172,7 @@ project:
 {
   "mcpServers": {
     "backyard": {
-      "url": "https://your-app.up.railway.app/mcp",
-      "headers": {
-        "Authorization": "Bearer key-alice"
-      }
+      "url": "https://your-app.up.railway.app/mcp"
     }
   }
 }
@@ -359,8 +355,7 @@ DEBUG: audit: bob@test.com | frontend | wait_for_signal | topic=auth-api | resol
 ### Verify audit log via API
 
 ```bash
-curl https://your-app.up.railway.app/project/test-project-railway-001/status \
-  -H "Authorization: Bearer key-alice"
+curl https://your-app.up.railway.app/project/test-project-railway-001/status
 ```
 
 Expected: JSON with `active_sessions` and `open_resolutions`.
@@ -409,7 +404,6 @@ Check the Dockerfile builds locally first: `docker build -t backyard .`
 
 **MCP tools not appearing in Claude Code:**
 - Confirm `curl https://your-app.up.railway.app/health` returns 200
-- Confirm the `API_KEYS` variable includes the key in your `settings.json`
 - Check Railway logs for `ProfileNotFoundError` — means `me.yaml` is missing in the workspace
 
 **`wait_for_signal` never resolves:**

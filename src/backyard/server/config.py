@@ -17,8 +17,9 @@ class Settings(BaseSettings):
     # Anthropic (for file summaries and activity compression)
     anthropic_api_key: str = ""
 
-    # Auth — comma-separated list of valid API keys
-    # Format: key-name  (name used in logs; key is the full string)
+    # Auth — optional. If empty, auth is disabled and identity comes from me.yaml.
+    # When set, every request must present a matching Bearer token.
+    # Format: comma-separated keys, e.g. key-alice,key-bob
     api_keys: str = ""
 
     # Server
@@ -35,6 +36,10 @@ class Settings(BaseSettings):
     @property
     def valid_api_keys(self) -> set[str]:
         return {k.strip() for k in self.api_keys.split(",") if k.strip()}
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.valid_api_keys)
 
 
 settings = Settings()

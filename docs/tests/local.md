@@ -40,7 +40,6 @@ Open `.env` and set:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...        # your real key — needed for file summaries
-API_KEYS=key-alice,key-bob          # two keys so you can simulate two identities
 BASE_URL=http://localhost:8000
 LOG_LEVEL=DEBUG                     # see everything during testing
 ```
@@ -152,10 +151,7 @@ Edit `.claude/settings.json` (in your home directory or this project directory):
 {
   "mcpServers": {
     "backyard": {
-      "url": "http://localhost:8000/mcp",
-      "headers": {
-        "Authorization": "Bearer key-alice"
-      }
+      "url": "http://localhost:8000/mcp"
     }
   }
 }
@@ -235,7 +231,7 @@ Expected: resolution card created, visible in `get_project_status` and at `http:
 
 ## Step 10 — Simulate two identities from one machine (logic check only)
 
-You can open a second terminal and run Claude Code from a different directory with a different `me.yaml` and API key (`key-bob`). Both sessions talk to the same local server and the same local database.
+You can open a second terminal and run Claude Code from a different directory with a different `me.yaml`. Both sessions talk to the same local server and the same local database.
 
 This is useful for checking that the logic is correct — that two sessions on the same `project.id` see each other's data. It is **not** a realistic multi-engineer test because both sessions are on the same machine, same network, with no latency.
 
@@ -259,8 +255,7 @@ cat > .claude/settings.json << 'EOF'
 {
   "mcpServers": {
     "backyard": {
-      "url": "http://localhost:8000/mcp",
-      "headers": { "Authorization": "Bearer key-bob" }
+      "url": "http://localhost:8000/mcp"
     }
   }
 }
@@ -294,7 +289,6 @@ Postgres is running outside Docker (a local install), not via docker-compose. St
 
 **Claude Code does not list Backyard tools:**
 - `curl http://localhost:8000/health` — if this fails, the server is not running
-- Check `API_KEYS` in `.env` includes `key-alice`
 - Check `.backyard-mcp/me.yaml` exists in the directory where you run `claude`
 - Look at server logs — a malformed `me.yaml` prints a clear error
 

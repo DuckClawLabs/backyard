@@ -65,8 +65,7 @@ Backyard is an **MCP coordination server**. Every engineer points their Claude C
 {
   "mcpServers": {
     "backyard": {
-      "url": "https://backyard.yourcompany.com/mcp",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+      "url": "https://backyard.yourcompany.com/mcp"
     }
   }
 }
