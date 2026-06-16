@@ -26,15 +26,15 @@ def build_mcp_server(
     role: str,
     db_factory: Callable[[], AsyncSession],
 ) -> Server:
-    auth.project_id = project_id
-    auth.role = role
-    """
-    Build and return a configured MCP Server for this engineer's session.
+    """Build and return a configured MCP Server for this engineer's session.
+
     Tool calls are intercepted here for:
       - capability check (role enforcement)
       - audit logging
       - domain check on write_file (triggers proposal flow)
     """
+    auth.project_id = project_id
+    auth.role = role
     server = Server(name="backyard", version="0.1.0")
 
     @server.list_tools()

@@ -142,7 +142,7 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
         return json.dumps({
             "active_sessions": [{"engineer": s.engineer_name, "role": s.role} for s in active],
             "recent_activity": activity,
-            "contracts": [{"id": c.id, "description": c.description} for c in contracts],
+            "contracts": [{"id": c.contract_id, "version": c.version, "description": c.description} for c in contracts],
             "open_decisions": len(decisions),
         }, indent=2, default=str)
 

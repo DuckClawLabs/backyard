@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pathspec
 from mcp.types import Tool
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,11 +56,18 @@ TOOLS: list[Tool] = [
 ]
 
 
+def _load_gitignore(root: Path) -> pathspec.PathSpec:
+    gitignore = root / ".gitignore"
+    if gitignore.is_file():
+        return pathspec.PathSpec.from_lines("gitwildmatch", gitignore.read_text().splitlines())
+    return pathspec.PathSpec.from_lines("gitwildmatch", [])
+
+
 def _safe_path(path: str) -> Path:
     """Resolve path and ensure it doesn't escape the working directory."""
-    resolved = Path(os.getcwd()).resolve() / path
-    resolved = resolved.resolve()
-    if not str(resolved).startswith(str(Path(os.getcwd()).resolve())):
+    cwd = Path(os.getcwd()).resolve()
+    resolved = (cwd / path).resolve()
+    if not resolved.is_relative_to(cwd):
         raise PermissionError(f"Path traversal blocked: {path!r}")
     return resolved
 
@@ -126,8 +134,14 @@ async def dispatch(name: str, args: dict[str, Any], db: AsyncSession, auth: Auth
         base = args.get("path", ".")
         pattern = args.get("pattern", "*")
         try:
+            root = Path(os.getcwd()).resolve()
             safe = _safe_path(base)
-            files = [str(p.relative_to(safe)) for p in safe.rglob(pattern) if p.is_file()]
+            gitignore = _load_gitignore(root)
+            files = [
+                str(p.relative_to(safe))
+                for p in safe.rglob(pattern)
+                if p.is_file() and not gitignore.match_file(str(p.relative_to(root)))
+            ]
             return "\n".join(files[:200]) if files else "No files found."
         except (FileNotFoundError, PermissionError) as e:
             return f"Error: {e}"

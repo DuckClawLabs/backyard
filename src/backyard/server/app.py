@@ -10,9 +10,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from mcp.server.sse import SseServerTransport
 
+from backyard.db.models import Org, Project as ProjectModel
 from backyard.server.auth import AuthContext, authenticate
 from backyard.server.config import settings
 from backyard.server.context.briefing import assemble_briefing
@@ -29,6 +30,10 @@ from backyard.server.redis_client import close_redis, get_redis
 
 logging.basicConfig(level=getattr(logging, settings.log_level))
 logger = logging.getLogger(__name__)
+
+# Singleton SSE transport — must be shared between GET /mcp and POST /mcp/messages
+# so that handle_post_message can route to the correct in-flight SSE session.
+_sse_transport = SseServerTransport("/mcp/messages")
 
 
 @asynccontextmanager
@@ -89,11 +94,15 @@ async def mcp_sse(request: Request):
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse(f"Invalid me.yaml: {e}", status_code=200)
 
-    project_id = profile.id
+    project_id = _slug_to_uuid(profile.id)
+    org_id = _slug_to_uuid("default-org")
     auth.engineer_name = profile.engineer.name
     auth.engineer_id = _email_to_id(profile.engineer.email)
     auth_role = profile.engineer.role
     auth.git_branch = _read_git_branch(workspace_root)
+
+    # Ensure org + project rows exist so FK constraints on all tables pass
+    await _ensure_project(project_id, profile.name, org_id)
 
     # If the profile defines custom owns, store them for role enforcement
     if profile.engineer.owns:
@@ -141,8 +150,7 @@ async def mcp_sse(request: Request):
             role=auth_role,
             db_factory=AsyncSessionLocal,
         )
-        transport = SseServerTransport("/mcp/messages")
-        async with transport.connect_sse(request.scope, request.receive, request._send) as streams:
+        async with _sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
             await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
     finally:
         await redis.hdel(f"sessions:{project_id}", auth.session_id)
@@ -155,7 +163,15 @@ async def mcp_sse(request: Request):
 
 @app.post("/mcp/messages")
 async def mcp_messages(request: Request):
-    return JSONResponse({"ok": True})
+    from fastapi.responses import JSONResponse
+    session_id = request.query_params.get("session_id", "")
+    if session_id and session_id not in {str(k).replace("-", "") for k in _sse_transport._read_stream_writers}:
+        # Session doesn't exist — server was likely restarted. Tell the client to reconnect.
+        return JSONResponse(
+            status_code=410,
+            content={"error": "Session expired. Reconnect to /mcp to get a new session."},
+        )
+    await _sse_transport.handle_post_message(request.scope, request.receive, request._send)
 
 
 # ── Dashboard and project-scoped REST endpoints ───────────────────────────────
@@ -173,6 +189,7 @@ async def dashboard(project_id: str):
 @app.get("/project/{project_id}/status")
 async def project_status(project_id: str, request: Request):
     await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
     redis = get_redis()
     active_raw = await redis.hgetall(f"sessions:{project_id}")
     active = []
@@ -192,9 +209,30 @@ async def project_status(project_id: str, request: Request):
     }
 
 
+@app.get("/project/{project_id}/file-summary")
+async def get_file_summary_endpoint(project_id: str, path: str, request: Request):
+    """REST fallback for get_file_summary — works without an active MCP session."""
+    await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
+    from backyard.server.context import store
+    async with AsyncSessionLocal() as db:
+        summary = await store.get_file_summary(db, project_id=project_id, path=path)
+    if not summary:
+        return {"path": path, "summary": None,
+                "message": f"No summary available for '{path}'. Write the file through Backyard first."}
+    return {
+        "path": summary.path,
+        "summary": summary.summary,
+        "exports": summary.exports,
+        "last_modified_by": summary.last_modified_by,
+        "last_modified_at": summary.last_modified_at.isoformat(),
+    }
+
+
 @app.get("/project/{project_id}/briefing")
 async def get_briefing(project_id: str, request: Request):
     auth = await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
     role = await get_engineer_role_for_project(project_id, auth.engineer_id)
     async with AsyncSessionLocal() as db:
         briefing = await assemble_briefing(
@@ -210,6 +248,7 @@ async def get_briefing(project_id: str, request: Request):
 @app.post("/project/{project_id}/resolutions/{resolution_id}/resolve")
 async def resolve_resolution(project_id: str, resolution_id: str, request: Request):
     auth = await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
     body = await request.json()
     async with AsyncSessionLocal() as db:
         decision = await resolve_card(
@@ -228,6 +267,7 @@ async def resolve_resolution(project_id: str, resolution_id: str, request: Reque
 @app.post("/project/{project_id}/members/{engineer_id}/role")
 async def set_member_role(project_id: str, engineer_id: str, request: Request):
     await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
     body = await request.json()
     role = body.get("role", "backend")
     valid_roles = {"frontend", "backend", "devops", "reviewer"}
@@ -244,6 +284,7 @@ async def set_member_role(project_id: str, engineer_id: str, request: Request):
 async def project_events(project_id: str, request: Request):
     """Server-Sent Events stream for the dashboard's live updates."""
     await authenticate(request)
+    project_id = _slug_to_uuid(project_id)
     from starlette.responses import StreamingResponse
     import asyncio
 
@@ -253,10 +294,11 @@ async def project_events(project_id: str, request: Request):
 
     async def event_stream():
         try:
-            async for message in pubsub.listen():
+            while True:
                 if await request.is_disconnected():
                     break
-                if message["type"] == "message":
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message["type"] == "message":
                     yield f"data: {message['data']}\n\n"
         finally:
             await pubsub.unsubscribe(f"events:{project_id}")
@@ -271,6 +313,33 @@ def _email_to_id(email: str) -> str:
     """Derive a stable engineer ID from their email address."""
     import hashlib, uuid
     return str(uuid.UUID(hashlib.md5(email.lower().encode()).hexdigest()))
+
+
+def _slug_to_uuid(slug: str) -> str:
+    """Derive a stable project UUID from a human-readable slug (e.g. 'backyard')."""
+    import hashlib, uuid
+    return str(uuid.UUID(hashlib.md5(slug.lower().encode()).hexdigest()))
+
+
+async def _ensure_project(project_id: str, project_name: str, org_id: str) -> None:
+    """Upsert org + project rows so FK constraints on signals/contracts/adrs/etc pass."""
+    from sqlalchemy import select as _sel
+
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(_sel(Org.id).where(Org.id == org_id))).scalar_one_or_none():
+            try:
+                db.add(Org(id=org_id, name="default"))
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(_sel(ProjectModel.id).where(ProjectModel.id == project_id))).scalar_one_or_none():
+            try:
+                db.add(ProjectModel(id=project_id, org_id=org_id, name=project_name))
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
 
 def _read_git_branch(workspace_root: str) -> str:

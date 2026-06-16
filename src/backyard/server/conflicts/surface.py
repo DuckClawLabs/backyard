@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -60,7 +61,7 @@ async def create_resolution_card(
     # Publish event so connected dashboard clients see it immediately
     await redis.publish(
         f"events:{project_id}",
-        f'{{"type":"resolution_created","resolution_id":"{card_id}","title":{title!r}}}',
+        json.dumps({"type": "resolution_created", "resolution_id": card_id, "title": title}),
     )
 
     return ResolutionCard(
@@ -107,7 +108,7 @@ async def resolve_card(
     # Publish resolution event
     await redis.publish(
         f"events:{project_id}",
-        f'{{"type":"resolution_resolved","resolution_id":"{resolution_id}","decision":{decision!r}}}',
+        json.dumps({"type": "resolution_resolved", "resolution_id": resolution_id, "decision": decision}),
     )
 
     adr_id: str | None = None
