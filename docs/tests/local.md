@@ -50,15 +50,32 @@ Leave `DATABASE_URL` and `REDIS_URL` at their defaults — docker-compose sets t
 
 ## Step 3 — Start Redis and Postgres
 
+> **Note:** Use `docker compose` (with a space), not `docker-compose`. The hyphenated command is the old standalone binary; modern Docker ships the Compose plugin instead.
+
 ```bash
-docker-compose -f infra/docker-compose.yml up -d postgres redis
+docker compose -f infra/docker-compose.yml up -d postgres redis
 ```
 
 Wait for both to be healthy:
 
 ```bash
-docker-compose -f infra/docker-compose.yml ps
-# both should show "healthy"
+docker compose -f infra/docker-compose.yml ps
+# both should show "healthy" and list port mappings (0.0.0.0:5432->5432/tcp, 0.0.0.0:6379->6379/tcp)
+```
+
+**If Postgres shows no port mapping for 5432**, something else is occupying that port — usually a locally installed Postgres service. Stop it first:
+
+```bash
+sudo systemctl stop postgresql
+docker compose -f infra/docker-compose.yml down
+docker compose -f infra/docker-compose.yml up -d postgres redis
+```
+
+**If you're re-running after a previous failed setup**, the Postgres volume may be initialized with wrong credentials. Wipe it and start fresh:
+
+```bash
+docker compose -f infra/docker-compose.yml down -v
+docker compose -f infra/docker-compose.yml up -d postgres redis
 ```
 
 ---
@@ -78,8 +95,10 @@ If you see `could not connect to server`, Postgres is not ready yet — wait 10 
 This is the primary local verification step.
 
 ```bash
-pytest -v
+PYTHONPATH="" uv run pytest tests/ -v
 ```
+
+`PYTHONPATH=""` is required if you have ROS installed — ROS injects pytest plugins via `PYTHONPATH` that are incompatible with this project's pytest version. Clearing it prevents those plugins from loading.
 
 Tests use `fakeredis` and an in-memory SQLite database — no external services needed. All tests should pass before you deploy anything.
 
@@ -109,8 +128,10 @@ If any test fails, fix it before proceeding — a broken unit test means the ser
 ## Step 6 — Start the server
 
 ```bash
-uvicorn backyard.server.app:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn backyard.server.app:app --host 0.0.0.0 --port 8000
 ```
+
+> **Do not use `--reload` when testing MCP.** `--reload` restarts the server process on every file change, which drops all active SSE sessions. Claude Code does not reconnect automatically — every reload breaks the MCP connection and requires starting a new Claude Code session.
 
 Verify it's running:
 
@@ -145,19 +166,65 @@ project:
 
 ## Step 8 — Connect Claude Code to the local server
 
-Edit `.claude/settings.json` (in your home directory or this project directory):
+Claude Code reads MCP server configuration from a `settings.json` file. You can place this at two levels:
+
+| Location | Scope |
+|---|---|
+| `~/.claude/settings.json` | Global — applies to every Claude Code session on your machine |
+| `.claude/settings.json` (repo root) | Project-scoped — only active when you run `claude` from this directory |
+
+For local testing, either works. Use the project-scoped file if you don't want Backyard active in every session.
+
+**Create or edit the file:**
+
+```bash
+# Global (recommended for local testing)
+mkdir -p ~/.claude
+nano ~/.claude/settings.json
+
+# OR project-scoped
+mkdir -p .claude
+nano .claude/settings.json
+```
+
+**Full settings.json for local Backyard:**
 
 ```json
 {
   "mcpServers": {
     "backyard": {
+      "type": "sse",
       "url": "http://localhost:8000/mcp"
     }
   }
 }
 ```
 
-Start Claude Code:
+Field reference:
+
+| Field | Value | Notes |
+|---|---|---|
+| `"type"` | `"sse"` | **Required.** Without this, Claude Code treats the URL as a stdio command and fails silently |
+| `"url"` | `"http://localhost:8000/mcp"` | Local server address. Change port if you used a different one in Step 6 |
+
+If you already have other MCP servers configured, add `"backyard"` alongside them — do not replace the existing `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "existing-server": {
+      "type": "stdio",
+      "command": "some-command"
+    },
+    "backyard": {
+      "type": "sse",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+**Start Claude Code from the directory containing your `.backyard-mcp/me.yaml`:**
 
 ```bash
 claude
@@ -255,6 +322,7 @@ cat > .claude/settings.json << 'EOF'
 {
   "mcpServers": {
     "backyard": {
+      "type": "sse",
       "url": "http://localhost:8000/mcp"
     }
   }
@@ -285,12 +353,24 @@ This confirms the shared state works. For the real multi-engineer experience —
 You are not in the repo root, or the install is broken. Run `uv pip install -e ".[dev]"` from the repo root.
 
 **`alembic upgrade head` fails — `password authentication failed`:**
-Postgres is running outside Docker (a local install), not via docker-compose. Stop the local Postgres and use docker-compose.
+The Postgres volume was initialized with different credentials (e.g. from a previous run). Wipe the volume and restart:
+```bash
+docker compose -f infra/docker-compose.yml down -v
+docker compose -f infra/docker-compose.yml up -d postgres redis
+```
+
+**`alembic upgrade head` fails — `Connect call failed ('127.0.0.1', 5432)`:**
+Postgres is not reachable on the host. Check `docker compose -f infra/docker-compose.yml ps` — if port 5432 is not listed in the PORTS column, something was holding that port when Docker started. Stop the conflicting process (`sudo systemctl stop postgresql`) and do a full `down` + `up` (not just `restart`) so Docker re-binds the port.
+
+**Tools fail with "Could not find session" / "Error POSTing to endpoint (HTTP 404)":**
+The server was restarted after Claude Code connected. `SseServerTransport` stores sessions in memory — a server restart wipes them all. Claude Code does not reconnect automatically. Start a new Claude Code session (open a new conversation) to re-establish the MCP connection. Never use `--reload` when testing MCP tools.
 
 **Claude Code does not list Backyard tools:**
 - `curl http://localhost:8000/health` — if this fails, the server is not running
-- Check `.backyard-mcp/me.yaml` exists in the directory where you run `claude`
-- Look at server logs — a malformed `me.yaml` prints a clear error
+- Confirm `"type": "sse"` is present in your `mcpServers` config — omitting it causes a silent connection failure
+- Check `.backyard-mcp/me.yaml` exists in the directory where you run `claude` and contains real values (not the example placeholders)
+- Start a **new** Claude Code session after any server restart — existing sessions do not reconnect automatically
+- Look at server logs — a malformed `me.yaml` prints a clear error message inside the Claude session
 
 **File summary returns null / Anthropic error:**
 `ANTHROPIC_API_KEY` in `.env` is missing or wrong. All other tools work without it.
@@ -299,7 +379,7 @@ Postgres is running outside Docker (a local install), not via docker-compose. St
 
 ## Local testing checklist
 
-- [ ] `pytest -v` — all tests pass
+- [ ] `PYTHONPATH="" uv run pytest tests/ -v` — all 21 tests pass
 - [ ] Server starts, `curl /health` returns 200
 - [ ] Claude Code lists Backyard tools
 - [ ] `publish_context` + `query_shared_context` round-trip works
